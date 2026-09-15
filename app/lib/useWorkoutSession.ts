@@ -34,13 +34,14 @@ export type WorkoutExercise = {
     isCardio: boolean;
     isBodyweight: boolean;
     is_unilateral: boolean;
+    per_side_weight: boolean;
     superset_group?: number | null;
     image_url?: string | null;
 };
 
 export function isDualWeight(ex: WorkoutExercise): boolean {
     if (ex.isCardio || ex.isBodyweight) return false;
-    return ex.is_unilateral;
+    return ex.per_side_weight;
 }
 
 export type SetEntry = {
@@ -259,13 +260,13 @@ export function useWorkoutSession() {
 
             const { data: exRows } = await supabase
                 .from("scheduled_exercises")
-                .select("id, order_index, target_sets, target_reps, target_weight, rest_seconds, exercise_id, superset_group, exercises(name, category, equipment, body_segment, is_unilateral, image_url)")
+                .select("id, order_index, target_sets, target_reps, target_weight, rest_seconds, exercise_id, superset_group, exercises(name, category, equipment, body_segment, is_unilateral, per_side_weight, image_url)")
                 .eq("scheduled_day_id", day.id)
                 .order("order_index");
             const mapped: WorkoutExercise[] = (exRows ?? []).map((r: any) => {
                 const seg = r.exercises?.body_segment ?? "";
                 const equip = r.exercises?.equipment ?? "";
-                return { id: r.id, exercise_id: r.exercise_id, order_index: r.order_index, target_sets: r.target_sets, target_reps: r.target_reps, target_weight: r.target_weight, rest_seconds: r.rest_seconds, name: r.exercises?.name ?? "Unknown", category: r.exercises?.category ?? "", equipment: equip, body_segment: seg, isCardio: seg === "Cardio", isBodyweight: equip.toLowerCase() === "bodyweight" && seg !== "Cardio", is_unilateral: r.exercises?.is_unilateral ?? false, superset_group: r.superset_group ?? null, image_url: r.exercises?.image_url ?? null };
+                return { id: r.id, exercise_id: r.exercise_id, order_index: r.order_index, target_sets: r.target_sets, target_reps: r.target_reps, target_weight: r.target_weight, rest_seconds: r.rest_seconds, name: r.exercises?.name ?? "Unknown", category: r.exercises?.category ?? "", equipment: equip, body_segment: seg, isCardio: seg === "Cardio", isBodyweight: equip.toLowerCase() === "bodyweight" && seg !== "Cardio", is_unilateral: r.exercises?.is_unilateral ?? false, per_side_weight: r.exercises?.per_side_weight ?? false, superset_group: r.superset_group ?? null, image_url: r.exercises?.image_url ?? null };
             });
             setExercisesList(mapped);
             if (mapped.length === 0) { setStatus("no_plan"); return; }
@@ -705,7 +706,11 @@ export function useWorkoutSession() {
             isCardio: seg === "Cardio",
             isBodyweight: equip.toLowerCase() === "bodyweight" && seg !== "Cardio",
             is_unilateral: false,
+            per_side_weight: false,
         };
+        supabase.from("exercises").select("per_side_weight").eq("id", ex.id).maybeSingle().then(({ data }) => {
+            if (data?.per_side_weight) setFreestyleExercises((p) => p.map((e) => e.exercise_id === ex.id ? { ...e, per_side_weight: true } : e));
+        });
         setFreestyleExercises((p) => [...p, localEx]);
         setShowFreestyleAddModal(false);
     }
@@ -738,13 +743,13 @@ export function useWorkoutSession() {
 
         const { data: exRows } = await supabase
             .from("scheduled_exercises")
-            .select("id, order_index, target_sets, target_reps, target_weight, rest_seconds, exercise_id, superset_group, exercises(name, category, equipment, body_segment, is_unilateral, image_url)")
+            .select("id, order_index, target_sets, target_reps, target_weight, rest_seconds, exercise_id, superset_group, exercises(name, category, equipment, body_segment, is_unilateral, per_side_weight, image_url)")
             .eq("scheduled_day_id", day.id)
             .order("order_index");
 
         const mapped: WorkoutExercise[] = (exRows ?? []).map((r: any) => {
             const seg = r.exercises?.body_segment ?? ""; const equip = r.exercises?.equipment ?? "";
-            return { id: r.id, exercise_id: r.exercise_id, order_index: r.order_index, target_sets: r.target_sets, target_reps: r.target_reps, target_weight: r.target_weight, rest_seconds: r.rest_seconds, name: r.exercises?.name ?? "Unknown", category: r.exercises?.category ?? "", equipment: equip, body_segment: seg, isCardio: seg === "Cardio", isBodyweight: equip.toLowerCase() === "bodyweight" && seg !== "Cardio", is_unilateral: r.exercises?.is_unilateral ?? false, superset_group: r.superset_group ?? null, image_url: r.exercises?.image_url ?? null };
+            return { id: r.id, exercise_id: r.exercise_id, order_index: r.order_index, target_sets: r.target_sets, target_reps: r.target_reps, target_weight: r.target_weight, rest_seconds: r.rest_seconds, name: r.exercises?.name ?? "Unknown", category: r.exercises?.category ?? "", equipment: equip, body_segment: seg, isCardio: seg === "Cardio", isBodyweight: equip.toLowerCase() === "bodyweight" && seg !== "Cardio", is_unilateral: r.exercises?.is_unilateral ?? false, per_side_weight: r.exercises?.per_side_weight ?? false, superset_group: r.superset_group ?? null, image_url: r.exercises?.image_url ?? null };
         });
 
         const { data: session } = await supabase.from("workout_sessions").insert({ user_id: user.id, scheduled_day_id: day.id, date: today, title: "Freestyle Session", status: "active", sex: userSex }).select().single();
@@ -990,21 +995,21 @@ export function useWorkoutSession() {
 
     async function handleSwap(oldEx: WorkoutExercise, newEx: { id: string; name: string }) {
         if (!user) return;
-        const { data } = await supabase.from("exercises").select("category, equipment, body_segment, is_unilateral").eq("id", newEx.id).maybeSingle();
+        const { data } = await supabase.from("exercises").select("category, equipment, body_segment, is_unilateral, per_side_weight").eq("id", newEx.id).maybeSingle();
         const seg = data?.body_segment ?? ""; const equip = data?.equipment ?? "";
         await supabase.from("scheduled_exercises").update({ exercise_id: newEx.id }).eq("id", oldEx.id);
-        setExercisesList((p) => p.map((e) => (e.id === oldEx.id ? { ...e, exercise_id: newEx.id, name: newEx.name, body_segment: seg, equipment: equip, isCardio: seg === "Cardio", isBodyweight: equip.toLowerCase() === "bodyweight" && seg !== "Cardio", is_unilateral: data?.is_unilateral ?? false } : e)));
+        setExercisesList((p) => p.map((e) => (e.id === oldEx.id ? { ...e, exercise_id: newEx.id, name: newEx.name, body_segment: seg, equipment: equip, isCardio: seg === "Cardio", isBodyweight: equip.toLowerCase() === "bodyweight" && seg !== "Cardio", is_unilateral: data?.is_unilateral ?? false, per_side_weight: data?.per_side_weight ?? false } : e)));
         setLogs((p) => ({ ...p, [oldEx.id]: Array.from({ length: oldEx.target_sets }, (_, i) => emptySet(i)) }));
         setSwapTargetId(null);
     }
 
     async function handleAddExercise(newEx: { id: string; name: string }) {
         if (!user || !sessionId) return;
-        const { data: exData } = await supabase.from("exercises").select("category, equipment, body_segment, is_unilateral").eq("id", newEx.id).maybeSingle();
+        const { data: exData } = await supabase.from("exercises").select("category, equipment, body_segment, is_unilateral, per_side_weight").eq("id", newEx.id).maybeSingle();
         const seg = exData?.body_segment ?? ""; const equip = exData?.equipment ?? ""; const nextOrder = exercisesList.length;
         const { data: created } = await supabase.from("scheduled_exercises").insert({ scheduled_day_id: scheduledDayId, user_id: user.id, exercise_id: newEx.id, order_index: nextOrder, target_sets: 3, target_reps: "8-10" }).select().single();
         if (!created) return;
-        const ex: WorkoutExercise = { id: created.id, exercise_id: newEx.id, order_index: nextOrder, target_sets: 3, target_reps: "8-10", target_weight: null, rest_seconds: 90, name: newEx.name, category: exData?.category ?? "", equipment: equip, body_segment: seg, isCardio: seg === "Cardio", isBodyweight: equip.toLowerCase() === "bodyweight" && seg !== "Cardio", is_unilateral: exData?.is_unilateral ?? false };
+        const ex: WorkoutExercise = { id: created.id, exercise_id: newEx.id, order_index: nextOrder, target_sets: 3, target_reps: "8-10", target_weight: null, rest_seconds: 90, name: newEx.name, category: exData?.category ?? "", equipment: equip, body_segment: seg, isCardio: seg === "Cardio", isBodyweight: equip.toLowerCase() === "bodyweight" && seg !== "Cardio", is_unilateral: exData?.is_unilateral ?? false, per_side_weight: exData?.per_side_weight ?? false };
         setExercisesList((p) => [...p, ex]);
         setLogs((p) => ({ ...p, [ex.id]: Array.from({ length: 3 }, (_, i) => emptySet(i)) }));
         setExpandedId(ex.id);

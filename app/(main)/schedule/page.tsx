@@ -32,6 +32,7 @@ type LocalExercise = {
     isCardio: boolean;
     equipment: string;
     is_unilateral: boolean;
+    per_side_weight: boolean;
     image_url: string | null;
     target_sets: number;
     target_reps: string;
@@ -45,7 +46,7 @@ type LocalExercise = {
 
 function isDualWeightEx(ex: LocalExercise): boolean {
     if (ex.isCardio || ex.equipment.toLowerCase() === "bodyweight") return false;
-    return ex.equipment === "Dumbbell" || (ex.equipment === "Cable" && !ex.is_unilateral);
+    return ex.per_side_weight;
 }
 
 type RecurringPlan = { template_id: string | null; is_rest: boolean; template_name: string; exercise_count: number; muscles: string[] };
@@ -79,7 +80,7 @@ function mapExerciseRow(row: any): LocalExercise {
         id: row.id, isNew: false, exercise_id: row.exercise_id,
         name: row.exercises?.name ?? "Unknown", body_segment: segment,
         isCardio: segment === "Cardio",
-        equipment: equip, is_unilateral: row.exercises?.is_unilateral ?? false,
+        equipment: equip, is_unilateral: row.exercises?.is_unilateral ?? false, per_side_weight: row.exercises?.per_side_weight ?? false,
         image_url: row.exercises?.image_url ?? null,
         target_sets: row.target_sets ?? 1, target_reps: row.target_reps ?? "",
         target_weight: row.target_weight ?? null, rest_seconds: row.rest_seconds ?? null,
@@ -281,7 +282,7 @@ function DayEditorModal({
             if (plan?.template_id) {
                 const { data: rows } = await supabase
                     .from("workout_template_exercises")
-                    .select("id, order_index, target_sets, target_reps, target_weight, rest_seconds, notes, target_duration_minutes, target_incline, target_speed, exercise_id, exercises(name, body_segment, equipment, is_unilateral, image_url)")
+                    .select("id, order_index, target_sets, target_reps, target_weight, rest_seconds, notes, target_duration_minutes, target_incline, target_speed, exercise_id, exercises(name, body_segment, equipment, is_unilateral, per_side_weight, image_url)")
                     .eq("template_id", plan.template_id)
                     .order("order_index");
                 setExercises((rows ?? []).map(mapExerciseRow));
@@ -290,7 +291,7 @@ function DayEditorModal({
         })();
     }, [plan]);
 
-    function handleAdd(exercise: { id: string; name: string; body_segment?: string; equipment?: string; is_unilateral?: boolean; image_url?: string | null }) {
+    function handleAdd(exercise: { id: string; name: string; body_segment?: string; equipment?: string; is_unilateral?: boolean; per_side_weight?: boolean; image_url?: string | null }) {
         const segment = exercise.body_segment || "Other";
         const cardio = segment === "Cardio";
         setExercises((prev) => {
@@ -298,7 +299,7 @@ function DayEditorModal({
             return [...prev, {
                 id: `new-${Date.now()}-${Math.random().toString(36).slice(2)}`, isNew: true, exercise_id: exercise.id, name: exercise.name,
                 body_segment: segment, isCardio: cardio,
-                equipment: exercise.equipment ?? "Other", is_unilateral: exercise.is_unilateral ?? false,
+                equipment: exercise.equipment ?? "Other", is_unilateral: exercise.is_unilateral ?? false, per_side_weight: exercise.per_side_weight ?? false,
                 image_url: exercise.image_url ?? null,
                 target_sets: cardio ? 1 : 3, target_reps: cardio ? "" : "8-10", target_weight: null, rest_seconds: cardio ? null : 90, notes: "",
                 target_duration_minutes: cardio ? 10 : null, target_incline: null, target_speed: null,
@@ -326,7 +327,7 @@ function DayEditorModal({
         });
     }
 
-    function handleSwap(replacement: { id: string; name: string; body_segment?: string; equipment?: string; is_unilateral?: boolean; image_url?: string | null }) {
+    function handleSwap(replacement: { id: string; name: string; body_segment?: string; equipment?: string; is_unilateral?: boolean; per_side_weight?: boolean; image_url?: string | null }) {
         if (!swapTarget) return;
         const segment = replacement.body_segment || "Other";
         const cardio = segment === "Cardio";
@@ -337,7 +338,7 @@ function DayEditorModal({
             return {
                 id: `new-${Date.now()}-${Math.random().toString(36).slice(2)}`, isNew: true, exercise_id: replacement.id, name: replacement.name,
                 body_segment: segment, isCardio: cardio,
-                equipment: replacement.equipment ?? "Other", is_unilateral: replacement.is_unilateral ?? false,
+                equipment: replacement.equipment ?? "Other", is_unilateral: replacement.is_unilateral ?? false, per_side_weight: replacement.per_side_weight ?? false,
                 image_url: replacement.image_url ?? null,
                 target_sets: old.target_sets, target_reps: old.target_reps, target_weight: old.target_weight,
                 rest_seconds: old.rest_seconds, notes: old.notes,
@@ -413,7 +414,7 @@ function DayEditorModal({
         setCopying(true);
         const { data: rows } = await supabase
             .from("workout_template_exercises")
-            .select("id, order_index, target_sets, target_reps, target_weight, rest_seconds, notes, target_duration_minutes, target_incline, target_speed, exercise_id, exercises(name, body_segment, equipment, is_unilateral, image_url)")
+            .select("id, order_index, target_sets, target_reps, target_weight, rest_seconds, notes, target_duration_minutes, target_incline, target_speed, exercise_id, exercises(name, body_segment, equipment, is_unilateral, per_side_weight, image_url)")
             .eq("template_id", sourcePlan.template_id)
             .order("order_index");
         if (rows?.length) {
@@ -841,7 +842,7 @@ export default function SchedulePage() {
         if (!plan || plan.is_rest || !plan.template_id) { setViewExercises([]); setRecoveryWarnings([]); setViewLoading(false); return; }
         const { data: rows } = await supabase
             .from("workout_template_exercises")
-            .select("id, order_index, target_sets, target_reps, target_weight, target_duration_minutes, target_incline, target_speed, exercise_id, exercises(name, body_segment, equipment, is_unilateral, image_url)")
+            .select("id, order_index, target_sets, target_reps, target_weight, target_duration_minutes, target_incline, target_speed, exercise_id, exercises(name, body_segment, equipment, is_unilateral, per_side_weight, image_url)")
             .eq("template_id", plan.template_id)
             .order("order_index");
         setViewExercises((rows ?? []).map(mapExerciseRow));

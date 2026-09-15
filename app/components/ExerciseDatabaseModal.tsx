@@ -18,6 +18,7 @@ type Exercise = {
     category: string;
     difficulty: string;
     is_unilateral: boolean;
+    per_side_weight: boolean;
     instructions: string | null;
     tracking_method: string | null;
     image_url: string | null;
