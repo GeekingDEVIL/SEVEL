@@ -1,571 +1,668 @@
-# ASCEND — Form Check Camera Upgrade Plan
+# ASCEND — Form Check v2: Gold Standard Upgrade Plan
 
-> Master feature list for the AI-powered form analysis overhaul.
+> Complete redesign spec for the AI-powered form analysis system.
+> Goal: best browser-based form checker that exists — no app install, no LiDAR, no subscription.
 > Every feature maps to exact files, describes how it works technically,
 > flags integration risks, and notes what the user needs to do (if anything).
 
 ---
 
-## Architecture Principle: Video Never Leaves the Device
+## Architecture Principles
 
+### Video Never Leaves the Device
 The form check system runs entirely client-side via MediaPipe Pose (33 body landmarks, WASM/WebGL).
-Raw video frames are held in memory during recording, analyzed, then **discarded immediately**.
-Only numeric results (scores, angles, tips) are persisted. This is a hard rule — no video upload, no video storage, no exceptions.
+During recording, the camera feed is captured via `MediaRecorder` for local playback on the report card.
+Video stays in memory as a `Blob` URL — never uploaded, never persisted to disk. Only numeric results
+(scores, angles, tips, rep data) are saved to the database. When the user leaves the report screen,
+the video blob is garbage collected. This is a hard rule — no video upload, no video storage, no exceptions.
 
-**Current files:**
-- `app/components/FormCheckCamera.tsx` — Full-screen camera overlay component (lazy-loaded via `next/dynamic`)
-- `app/lib/formAnalysis.ts` — Pose analysis engine (exercise detection, depth/symmetry/bar-path checks, scoring)
+### Rule Engine Architecture
+Instead of hardcoding scoring logic per exercise, all form checks use a **configurable rule engine**.
+Each exercise is a config object that maps to reusable check functions. Adding a new exercise means
+adding a config — no new analysis code needed. This architecture scales to any human movement:
+weightlifting, martial arts, yoga, calisthenics, running, rehab, dance.
+
+### Score Philosophy: Start at 100, Deduct for Faults
+Bad form produces a low score. Perfect form stays near 100. The old system started at 50 and added
+bonuses, which meant everything scored ~70 regardless of actual form. The new system starts at 100
+and deducts points for each detected fault, weighted by severity.
+
+---
+
+## Current State (What's Built)
+
+**Files:**
+- `app/components/FormCheckCamera.tsx` — Full-screen camera overlay (lazy-loaded via `next/dynamic`, renders via `createPortal` to document.body)
+- `app/lib/formAnalysis.ts` — Pose analysis engine (exercise detection, depth/symmetry/knee-cave/bar-path checks, rep detector, scoring)
+- `app/lib/formGuides.ts` — Exercise name → camera angle mapping + SVG silhouette path data
+- `app/lib/oneEuroFilter.ts` — 1-Euro jitter smoothing filter + LandmarkSmoother class
+- `supabase/migrations/027_form_checks.sql` — DB table for persisting results (already applied)
 - `app/(main)/workout/page.tsx` — Wires the Form Check button into exercise cards
 
-**What's built today:**
-- Full-screen camera with real-time skeleton overlay
+**What works today:**
+- Full-screen camera with real-time neon skeleton overlay (double-pass glow rendering)
+- 1-Euro filter jitter smoothing on all 33 landmarks
+- Per-joint color feedback (green/amber/red) based on real-time form checks
 - Front/back camera flip
+- 3-2-1 countdown before recording with haptic ticks
 - Auto-detect exercise type (squat, deadlift, overhead press, bench, general)
-- Squat depth analysis (knee angle vs 100° threshold)
-- Left/right symmetry check (flags >8° difference)
-- Bar path trajectory visualization
+- Exercise-specific camera guide with SVG silhouette overlay + distance estimation
+- Squat depth analysis, left/right symmetry, knee cave (valgus) detection
+- Bar path trajectory extraction
 - Back rounding detection for deadlifts
-- Bar path straightness check for overhead press/bench
-- Overall score 0–100 with exercise-specific tips
+- Auto rep counting with per-rep scoring via state machine
+- Haptic cues during recording (form breaks, rep completion)
+- Results saved to Supabase `form_checks` table
 - 60-second max recording with auto-stop
 - Lazy-loaded — zero cost until user taps Form Check
 
+**What's broken / needs overhaul:**
+- **Scoring always ~70** — base 50 + small bonuses means no dynamic range
+- **Only 4 exercise types scored** — squat, deadlift, bench, OHP. Everything else falls to "general" which gives a meaningless score
+- **Camera setup is text-only** — no live position validation, users can record from any angle and get garbage data
+- **Results screen is basic** — just a score number and generic tips, no breakdown, no video playback
+- **No gesture control** — user must walk to phone to start/stop recording
+- **No audio coaching** — missed cues while eyes are on the bar
+- **No tempo analysis** — we have timestamps but don't measure eccentric/concentric speed
+- **No video playback** — we capture landmarks but discard the camera feed
+
 ---
 
-## TIER 1 — High Impact (Build First)
+## TIER 1 — Core Engine Rebuild
 
-These are the features that turn Form Check from a tech demo into an actual coach.
+These fix the fundamental problems. Nothing else matters until scoring is accurate and data quality is ensured.
 
 ---
 
-### 1.1 Real-Time Color Feedback on Skeleton
+### 1.1 Scoring Engine Rewrite — Rule Engine + Deduction System
 
-**What:** Skeleton changes color based on form quality **in real time** during recording. Green when form is correct, amber when borderline, red when breaking down. Color changes happen **per-joint** — if knees are caving but upper body is fine, only the knee joints and their connections go red.
+**What:** Replace the hardcoded scoring with a configurable rule engine. Score starts at 100, each failed check deducts points weighted by severity. Exercise-specific rubrics define which checks apply.
 
 **Where:**
-- `app/components/FormCheckCamera.tsx` — `drawSkeleton()` function (currently line ~93). Currently uses hardcoded `#00ffaa` for all connections. Change to accept per-connection colors.
-- `app/lib/formAnalysis.ts` — Add a `checkFormRealtime(landmarks, exerciseType)` function that returns per-joint status (green/amber/red) without needing full frame history.
-- Color map: green `#00FFAA` (angles in safe range), amber `#FFB800` (approaching threshold), red `#FF4466` (past threshold).
+- `app/lib/formAnalysis.ts` — New `FormRuleEngine` class replacing the current `analyzeForm()` scoring block.
+- New `app/lib/formRubrics.ts` — Exercise rubric configs (one per exercise category).
 
-**How it works:**
-Each frame during recording, run angle checks on key joints based on the detected exercise type:
-- **Squat:** knee angle (depth), knee-to-ankle lateral offset (valgus), hip-to-shoulder angle (back rounding)
-- **Deadlift:** hip hinge angle, shoulder-below-hip check (back rounding)
-- **Overhead press:** elbow angle, bar path lateral drift
-- Map each check result to a color. Apply that color to the relevant connections in `drawSkeleton()`.
-
-**Integration risks:**
-- Performance: real-time checks run every frame at 30fps. Keep the check function under 1ms — use simple angle comparisons only, no loops over history.
-- The existing `analyzeForm()` runs post-recording on all frames. Real-time checks are a separate, lighter function — don't merge them.
-- Canvas drawing: each connection needs its own `strokeStyle` now instead of one global color. Refactor the draw loop.
-
-**From user:** Nothing. Fully automatic.
-
----
-
-### 1.2 3-2-1 Countdown Before Recording
-
-**What:** When the user taps record, a 3-second countdown with large animated numerals gives them time to get into position. Each number scales from 1.5× to 1.0× and fades out, with a haptic pulse per tick. Recording begins automatically after "1" completes.
-
-**Where:**
-- `app/components/FormCheckCamera.tsx` — Add new phase `"countdown"` between `"ready"` and `"recording"` in the phase state type (line ~28).
-- `startRecording()` function (line ~167) — Instead of immediately setting phase to "recording", set to "countdown" first.
-- New countdown overlay rendered when `phase === "countdown"` — large centered numeral with CSS scale + opacity animation.
-- After 3 seconds, auto-transition to "recording" phase and begin frame capture.
-
-**How it works:**
+**Rule engine check functions (reusable building blocks):**
 ```
-User taps record → phase = "countdown" → 3...2...1 (800ms each, haptic per tick) → phase = "recording"
+checkJointAngle(joint, min, max, weight)       — is the angle within acceptable range?
+checkJointStability(joint, maxDeviation, weight) — how much wobble/drift during the movement?
+checkSymmetry(leftJoint, rightJoint, tolerance, weight) — left vs right balance
+checkVelocity(joint, minSpeed, maxSpeed, weight) — movement speed (too fast = uncontrolled)
+checkPosition(jointA, relativeToB, direction, weight) — is joint A above/below/aligned with B?
+checkROM(joint, startAngle, endAngle, weight)   — did they complete full range of motion?
+checkTempo(eccentricMs, concentricMs, weight)   — controlled eccentric, appropriate concentric
+checkHold(joint, durationMs, maxDrift, weight)  — stability during held positions (yoga/planks)
+checkPath(joint, straightness, weight)          — limb/bar path deviation from ideal line
+checkLockout(joint, minAngle, weight)           — full extension at top of movement
 ```
-- `navigator.vibrate(50)` fires on each tick (works on Android Chrome, no-op on Safari — graceful)
-- Skeleton overlay continues drawing during countdown so user can see their pose
-- Cancel button available during countdown (sets phase back to "ready")
 
-**Integration risks:**
-- `processFrame()` callback (line ~130) checks `phase === "recording"` to push frames. Countdown frames should NOT be pushed. The check already handles this since phase is "countdown" not "recording".
-- `useEffect` at line ~160 that starts RAF loop checks for `phase === "ready" || phase === "recording"`. Add `"countdown"` to this check so skeleton keeps drawing.
-- `stopRecording()` should be no-op during countdown phase.
+**Exercise rubric example:**
+```typescript
+{
+  id: "squat",
+  keywords: ["squat", "goblet", "front squat", "back squat", "zercher"],
+  camera: "side",
+  checks: [
+    { rule: "checkJointAngle", joint: "knee", min: 0, max: 100, label: "Depth", weight: 25,
+      deduction: { warn: 10, fail: 25 }, tip: "Push hips back and down to hit parallel" },
+    { rule: "checkSymmetry", left: "left_knee", right: "right_knee", tolerance: 8, label: "Symmetry", weight: 15,
+      deduction: { warn: 5, fail: 15 }, tip: "Even out both sides — try single-leg mobility drills" },
+    { rule: "checkPosition", joint: "shoulder", relativeTo: "hip", direction: "above", label: "Torso Upright", weight: 20,
+      deduction: { warn: 8, fail: 20 }, tip: "Keep chest up — brace your core harder" },
+    { rule: "checkKneeCave", tolerance: 0.015, label: "Knee Tracking", weight: 20,
+      deduction: { warn: 8, fail: 20 }, tip: "Push knees out over your pinky toe on the way up" },
+    { rule: "checkLockout", joint: "hip", minAngle: 170, label: "Lockout", weight: 10,
+      deduction: { warn: 5, fail: 10 }, tip: "Stand all the way up — squeeze glutes at the top" },
+    { rule: "checkTempo", minEccentric: 1500, label: "Controlled Descent", weight: 10,
+      deduction: { warn: 5, fail: 10 }, tip: "Slow down the descent — 2-3 seconds down" },
+  ]
+}
+```
 
-**From user:** Nothing. Replaces instant-start behavior.
+**Exercise categories to ship with rubrics:**
 
----
-
-### 1.3 Exercise-Specific Camera Guide
-
-**What:** Different exercises need different camera angles for accurate analysis. Before recording, show a brief guide recommending phone placement with a matching body silhouette outline on the camera feed. The guide adapts per exercise since `exerciseName` is already passed as a prop.
-
-**Angle mapping:**
-
-| Exercise Category | Best Angle | Why | Silhouette |
+| Category | Keywords | Camera | Key Checks |
 |---|---|---|---|
-| Squat, Goblet Squat, Front Squat | Side view (90°) | Depth, back angle, bar path | Side profile |
-| Deadlift, RDL, Sumo Deadlift | Side view (90°) | Hip hinge, back rounding | Side profile |
-| Overhead Press, Push Press | 45° angle | Bar path + symmetry | 3/4 view |
-| Bench Press, Incline Press | Side view | Bar path, elbow angle | Side profile |
-| Lunge, Bulgarian Split Squat | Front view | Knee cave, balance | Front profile |
-| Pull-up, Lat Pulldown | Front view | Symmetry, ROM | Front profile |
-| Barbell Row, Cable Row | Side view | Body sway, ROM | Side profile |
-| General / Unknown | Any | Full body in frame | Generic outline |
+| Squat | squat, goblet, zercher, front squat | Side | Depth, knee tracking, torso upright, lockout, tempo |
+| Deadlift | deadlift, rdl, romanian, sumo, hip hinge | Side | Back angle, hip hinge, lockout, bar drift, tempo |
+| Overhead Press | overhead press, ohp, push press, military, shoulder press | 45° | Bar path, lockout, lean-back, symmetry |
+| Bench Press | bench, incline press, decline press, chest press, floor press | Side | Bar path, elbow angle at bottom, lockout, symmetry |
+| Lunge | lunge, split squat, bulgarian, step up | Front | Front knee tracking, torso upright, depth, balance/wobble |
+| Row | row, cable row, barbell row, dumbbell row, bent over | Side | Body sway, elbow path, torso angle stability, ROM |
+| Curl | curl, bicep, hammer curl, preacher | Front | Elbow drift (swinging), shoulder stability, full ROM |
+| Pull-up | pull up, pullup, chin up, lat pulldown, pulldown | Front | Full hang, chin over bar / full pull, symmetry, kipping detection |
+| Lateral Raise | lateral raise, side raise, front raise | Front | Arm height symmetry, elbow bend, shoulder shrug |
+| Tricep Extension | tricep, pushdown, skull crusher, overhead extension | Side | Elbow position locked, full lockout, ROM |
+| General | (fallback) | Any | Symmetry + ROM only — "This exercise has limited form analysis" |
+
+**Per-rep scoring:**
+- Each rep scored independently using the same rubric
+- Overall score = weighted average of all rep scores
+- Rep scores naturally drop with fatigue — this is real data, not a penalty
+
+**Score bands:**
+- 90-100: Excellent (green)
+- 75-89: Good (teal)
+- 50-74: Needs Work (amber)
+- 25-49: Poor (orange)
+- 0-24: Dangerous (red)
+
+**Integration:**
+- `analyzeForm()` calls the rule engine instead of hardcoded checks
+- Exercise type detected from `exerciseName` prop (already passed) via keyword matching — NOT from landmark heuristics
+- Landmark-based exercise auto-detection kept as fallback only when exerciseName is empty/generic
+
+---
+
+### 1.2 Camera Setup Flow — Live Position Validation
+
+**What:** Full-screen guided setup before recording. Validates camera angle, body distance, landmark visibility, and hold-steady — recording only starts when all conditions are met.
 
 **Where:**
-- `app/components/FormCheckCamera.tsx` — New `CameraGuide` sub-component rendered in the "ready" phase (replaces current corner frame guides).
-- New file `app/lib/formGuides.ts` — Exercise name → angle category mapping + SVG silhouette path data for each angle.
-- Silhouettes are inline SVG `<path>` elements drawn semi-transparently on the camera feed at ~70% frame height.
+- `app/components/FormCheckCamera.tsx` — New `"setup"` phase between `"ready"` and `"countdown"`.
+- `app/lib/formGuides.ts` — Already has angle mapping + silhouettes. Add validation logic.
+
+**Setup flow (3 steps):**
+
+**Step 1: Instruction card (2-3 seconds)**
+- Full-screen card: exercise name, required camera angle, animated phone placement diagram
+- "Place your phone at hip height, 6-8 feet away, showing your side profile"
+- Tap to continue (or auto-advance after 3s if user has done form check before)
+
+**Step 2: Live position validation**
+Camera feed active, skeleton drawing. Checklist overlaid:
+- ✅ "Full body visible" — all major landmarks (shoulders, hips, knees, ankles) detected with visibility > 0.6
+- ✅ "Good distance" — hip landmark width ratio between 0.08 and 0.35 (use existing distance estimation)
+- ✅ "Correct angle" — validate landmarks match expected view:
+  - Side view: shoulder-to-shoulder distance < 0.08 of frame width (narrow = side-on)
+  - Front view: shoulder-to-shoulder distance > 0.12 of frame width (wide = facing camera)
+  - 45°: between the two thresholds
+- ✅ "Hold steady" — landmark movement below threshold for 1.5 seconds
+- Each check animates from grey → green checkmark as it passes
+- If wrong angle detected: "Turn sideways for best squat analysis" prompt
+
+**Step 3: Ready**
+- All checks green → "Ready! 👍 Thumbs up or tap to start"
+- Gesture detection active (see 2.1)
+- Manual record button also available
+
+**Smart angle adaptation:**
+If the user sets up at a different angle than recommended and we can still extract useful data —
+adapt the rubric instead of blocking. Reduce weight of checks that need the recommended angle.
+"We recommended side view but analyzed from front — some checks adjusted"
+
+**Integration risks:**
+- Validation runs in `processFrame()` during setup phase — lightweight checks only
+- Don't block forever — after 10 seconds of failed validation, show "Having trouble? Tap to record anyway"
+- Skeleton overlay and silhouette both drawn during setup for visual guidance
+
+---
+
+### 1.3 Results Screen — Report Card Redesign
+
+**What:** Complete overhaul of the results screen into a layered, progressive-disclosure report card with video playback, radar chart, per-rep timeline, fault cards, and coaching.
+
+**Where:**
+- `app/components/FormCheckCamera.tsx` — Replace current ResultsView with new report card.
+
+**Layout (top to bottom):**
+
+**Hero: "One Thing to Fix" card**
+- Single most impactful coaching cue from all detected faults
+- "Focus on this: Push your knees out during the ascent"
+- Changes each session as user fixes issues. Feels like a personal coach.
+- If no faults: "Form looks solid. Keep it up!"
+
+**Score circle**
+- Large animated ring (fills over 1.2s with ease-out, number counts up from 0)
+- Color gradient fill based on score band
+- Label: "Excellent" / "Good" / "Needs Work" / "Poor"
+- Exercise name + duration + rep count below
+- Delta arrows if history exists: "↑8 from last session"
+
+**Video player**
+- Camera recording with neon skeleton overlay drawn on a synced canvas layer
+- Play/pause, scrub bar, 0.5x slow-mo toggle
+- Tap a rep in the timeline → video jumps to that rep's start frame
+- Pause on any frame to see exact joint angles overlaid
+- Video stays in memory as blob URL — never uploaded, discarded on exit
+
+**Radar chart (5 axes):**
+- **Depth/ROM** — did they hit full range of motion?
+- **Stability** — how smooth/controlled was the movement path?
+- **Symmetry** — left vs right balance
+- **Tempo** — controlled eccentric, appropriate concentric speed
+- **Path** — bar/limb trajectory straightness
+- Each axis 0-100, filled area shows the score shape
+- Ghost overlay of previous session's radar (20% opacity) if history exists
+
+**Per-rep timeline:**
+- Horizontal row of numbered circles, color-coded by that rep's score
+- Tap a rep to expand: angle reached, duration, eccentric/concentric split, specific faults
+- Fatigue indicator line if scores drop across the set
+- Partial rep badges (flagged reps that didn't hit full ROM)
+
+**Fault cards (expandable):**
+- Specific, actionable callouts with severity badge
+- "Knee Valgus — Reps 4, 5, 6" (red badge)
+- "Depth — Didn't reach parallel on reps 3, 7" (amber badge)  
+- "Tempo — Eccentric too fast on reps 5-8 (0.4s vs recommended 2s)" (amber badge)
+- Each card has a "How to fix" expandable with specific coaching cue
+
+**Progress footer:**
+- "vs Last Session: Score +8, Depth +6°, 2 fewer faults"
+- Mini sparkline of last 5 scores for this exercise
+- "First form check for this exercise!" if no history
+
+**Progressive disclosure:**
+- Default view: One Thing to Fix + score circle + video player
+- Scroll down: radar chart + per-rep timeline
+- Scroll more: fault cards + progress footer
+- Most users see the simple view. Power users dig deeper.
+
+**Screenshot-ready design:**
+- Score, exercise name, radar chart all fit in one phone screen
+- Looks good as a screenshot without a share button
+- Subtle "Analyzed by Ascend" watermark in corner
+
+---
+
+### 1.4 Video Recording for Playback
+
+**What:** Record the camera feed during the session using `MediaRecorder` API for playback on the report card with skeleton overlay.
+
+**Where:**
+- `app/components/FormCheckCamera.tsx` — Start `MediaRecorder` when recording begins, stop when recording ends.
 
 **How it works:**
-- Parse `exerciseName` prop to determine exercise category (fuzzy match — "Barbell Back Squat" → squat category)
-- Show a small phone-placement diagram in a toast/card at the top: "Best angle: side view"
-- Overlay the matching silhouette on the camera feed as a positioning guide
-- Silhouette fades out when recording starts
+- `new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9' })` on the camera stream
+- Collect chunks in an array via `ondataavailable`
+- On stop: `new Blob(chunks)` → `URL.createObjectURL(blob)` → feed to `<video>` element
+- Skeleton overlay: sync a canvas layer on top of the video. On each video `timeupdate`, find the nearest landmark frame by timestamp and draw the skeleton.
+- Landmark frames already stored in the `recordedFrames` array with timestamps — just need to sync.
 
-**Distance estimation (bonus):**
-- Use the pixel distance between left hip (landmark 23) and right hip (landmark 24) relative to canvas width
-- If ratio < 0.15 → show "Step closer" text
-- If ratio > 0.45 → show "Step back" text
-- Otherwise → show nothing (good distance)
+**Storage:**
+- 30 seconds at 720p ≈ 3-5MB as webm blob in memory
+- Stays as blob URL during report card view
+- `URL.revokeObjectURL()` when user closes report or navigates away
+- Never saved to disk, IndexedDB, or server
 
-**Integration risks:**
-- Exercise name matching must be fuzzy — names come from the exercises DB and vary ("Barbell Back Squat" vs "Back Squat" vs "Squat (Barbell)"). Use keyword matching, not exact match.
-- The silhouette must not interfere with the skeleton overlay — render it below the overlay canvas or at low opacity (20-30%).
-
-**From user:** Position phone as recommended. Guide is shown but not enforced — form check works from any angle, just with varying accuracy.
-
----
-
-### 1.4 Auto Rep Counting + Per-Rep Scoring
-
-**What:** Detect individual reps by tracking joint angles through their range of motion. Score each rep individually so users can see form degradation across a set. Display a live rep counter during recording. This is the #1 feature every competitor (Tempo, Kemtai, Onyx) has.
-
-**Where:**
-- `app/lib/formAnalysis.ts` — New `RepDetector` class with a state machine per exercise type. New `RepResult` type. Updated `FormAnalysisResult` with a `reps: RepResult[]` array.
-- `app/components/FormCheckCamera.tsx` — Instantiate `RepDetector` during recording. Show "+1" badge animation on rep detection. Show running count in top corner.
-- Results screen — horizontal row of colored circles (one per rep), each colored by that rep's score.
-
-**How it works — state machine per exercise:**
-```
-Squat/Deadlift:
-  "top" (knee angle > 150°) 
-  → "descending" (angle decreasing) 
-  → "bottom" (angle < threshold or starts increasing) 
-  → "ascending" (angle increasing) 
-  → "top" = 1 rep completed
-
-Overhead Press:
-  "bottom" (elbow angle < 100°) 
-  → "pressing" (angle increasing) 
-  → "top" (elbow angle > 160°) 
-  → "lowering" (angle decreasing) 
-  → "bottom" = 1 rep completed
-```
-
-Each rep captures:
-- Depth angle (min knee/elbow angle reached)
-- Symmetry (left vs right difference during that rep)
-- Duration (eccentric + concentric timing)
-- Per-rep score (0-100)
+**Playback controls:**
+- Play/pause button
+- Scrub bar synced to video timeline
+- 0.5x / 1x speed toggle
+- Tap rep in timeline → `video.currentTime = rep.startTime`
 
 **Integration risks:**
-- Rep detection runs during recording in `processFrame()`. Must be lightweight — just angle comparisons and state transitions, no heavy computation.
-- The post-recording `analyzeForm()` should use per-rep data for more accurate overall scoring (weighted average of rep scores instead of frame-aggregate).
-- Jittery landmarks can cause false rep detections. Require the angle to change by at least 15° before transitioning states. Add a minimum rep duration (0.8s) to filter spasms.
-- The "+1" rep badge needs to animate without blocking the main thread — use CSS animation, not JS-driven.
-
-**From user:** Nothing. Fully automatic. Rep count shown live during recording.
+- `MediaRecorder` supported on all modern mobile browsers (Chrome, Firefox, Safari 14.5+)
+- Safari may prefer `video/mp4` mimeType — detect and fall back
+- Memory: 5MB blob is fine. 60s recording ≈ 10MB max — still manageable
+- Must stop MediaRecorder before stopping the camera stream
 
 ---
 
-### 1.5 Knee Cave (Valgus) Detection
+### 1.5 Tempo & Speed Analysis
 
-**What:** Detect when knees collapse inward during squats and lunges. Measures the lateral offset between knee and ankle landmarks from front view. High injury-prevention value — this is one of the most common and dangerous form errors.
+**What:** Measure eccentric (lowering) vs concentric (lifting) duration for each rep. Flag dangerous speed. Display as timing data per rep.
 
 **Where:**
-- `app/lib/formAnalysis.ts` — New `analyzeKneeCave(frames)` function. New `KneeCaveCheck` type added to `FormAnalysisResult`.
-- Integrate with real-time color feedback (1.1) — knee connections go red when valgus detected.
-- Results screen — new metric card showing knee cave status.
-
-**How it works:**
-- From front view: compare knee X-position to ankle X-position for each leg
-- Normalize the offset to hip width (distance between landmark 23 and 24) for body-size independence
-- If knee moves inward past ankle by more than 8% of hip width → flag valgus
-- Track per-rep if rep counting is active
-- Also useful from 45° angle, less accurate from pure side view
-
-**Integration risks:**
-- Knee cave is most visible from front camera angle. If user is recording from the side, this check has lower accuracy — reduce its weight in the overall score when camera angle is estimated as "side view" (can estimate from shoulder-to-shoulder pixel distance being small).
-- Don't double-penalize: if knee cave is detected, don't also flag it in the symmetry check. One penalty per issue.
-
-**From user:** Front camera angle recommended for best detection. Side view can still catch severe cases.
-
----
-
-### 1.6 Save Form Check History (Discard Video, Keep Results)
-
-**What:** Save the analysis results (score, checks, tips, rep data) to a `form_checks` Supabase table after each form check. Raw video frames are discarded immediately after analysis — never stored, never uploaded. This enables form trends, personal bests, streaks, and achievements.
-
-**Where:**
-- New Supabase migration: `form_checks` table
-- `app/components/FormCheckCamera.tsx` — After `analyzeForm()` returns results, INSERT into `form_checks`
-- Need `useSupabase()` hook access in the component (or pass supabase client as prop)
-
-**Table schema:**
-```sql
-CREATE TABLE form_checks (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID REFERENCES profiles(id) NOT NULL,
-  exercise_name TEXT NOT NULL,
-  exercise_type TEXT NOT NULL,        -- squat, deadlift, overhead_press, bench, general
-  overall_score INTEGER NOT NULL,     -- 0-100
-  depth_angle INTEGER,                -- min knee angle (squats)
-  symmetry_diff INTEGER,              -- L/R degree difference
-  knee_cave_detected BOOLEAN,
-  lockout_complete BOOLEAN,
-  rep_count INTEGER,
-  duration INTEGER,                   -- seconds
-  frame_count INTEGER,
-  tips JSONB DEFAULT '[]',            -- array of tip strings
-  reps JSONB DEFAULT '[]',            -- array of per-rep scores
-  camera_angle TEXT,                  -- side, front, 45deg
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE INDEX idx_form_checks_user ON form_checks(user_id, created_at DESC);
-CREATE INDEX idx_form_checks_exercise ON form_checks(user_id, exercise_name);
-```
-
-**Integration risks:**
-- The component is lazy-loaded and doesn't currently have access to the Supabase client or user ID. Two options:
-  - Pass `supabase` and `userId` as props from the workout page (cleanest)
-  - Use `useSupabase()` inside the component (requires the hook to work inside the dynamic import boundary)
-- Don't block the results screen on the DB write. Fire-and-forget with a `.then()` error handler.
-- Privacy notice on the UI should be updated: "Video is never stored. Only your score and metrics are saved."
-
-**From user:** Must be logged in. Data is private to the user.
-
----
-
-### 1.7 Real-Time Haptic Cues During Recording
-
-**What:** Short haptic vibrations alert users to form issues mid-set since they can't look at the screen while lifting. Different vibration patterns for different errors. Throttled to max 1 cue per 3 seconds to avoid spamming.
-
-**Where:**
-- `app/components/FormCheckCamera.tsx` — In `processFrame()`, after real-time form checks (from 1.1), fire haptics when errors persist.
-- New throttle/cooldown ref to prevent spamming.
-
-**Vibration patterns:**
-```
-Knee cave detected:    navigator.vibrate([50, 30, 50])        // double buzz
-Go deeper (squat):     navigator.vibrate([100])                // single long
-Back rounding:         navigator.vibrate([50, 30, 50, 30, 50]) // triple buzz
-Rep completed:         navigator.vibrate([30])                  // short tap
-Recording started:     navigator.vibrate([50])                  // single tap
-Recording halfway:     navigator.vibrate([30, 20, 30])          // double tap
-Recording done:        navigator.vibrate([100, 50, 100])        // long pattern
-```
-
-**How it works:**
-- Each frame during recording, if a form error is detected AND the error has persisted for 3+ consecutive frames AND the cooldown timer (3 seconds) has expired → fire the matching vibration pattern
-- Cooldown ref tracks last vibration timestamp. Reset per error type so different errors can fire independently.
-- `navigator.vibrate()` is supported on Android Chrome. Safari/iOS does not support it — graceful no-op, no error.
-
-**Integration risks:**
-- Vibration during recording must not interfere with phone stability if propped up. The vibrations are very short (50-100ms) so this should be fine.
-- Don't fire haptics during countdown or analyzing phases — only during active recording.
-- Must be toggleable. Add a `hapticCues` setting (default: on) in the user's preferences or as a toggle on the form check UI itself.
-
-**From user:** Phone must not be on silent/vibrate-off mode (Android). Can be toggled off if distracting.
-
----
-
-## TIER 2 — Medium Impact (Build Next)
-
-These features improve the quality feel and add depth to the analysis.
-
----
-
-### 2.1 Landmark Jitter Smoothing (1-Euro Filter)
-
-**What:** MediaPipe landmarks jitter frame-to-frame, making the skeleton look shaky on screen. A 1-Euro filter adaptively smooths slow movements (kills jitter) while letting fast movements through with minimal lag. Makes the skeleton overlay look dramatically more stable and professional.
-
-**Where:**
-- New utility: `app/lib/oneEuroFilter.ts` — The filter class (~30 lines)
-- `app/components/FormCheckCamera.tsx` — Apply filter to all 33 landmarks in `processFrame()` before passing to `drawSkeleton()`
-
-**How it works:**
-```
-Recommended parameters: minCutoff = 1.0, beta = 0.007, dCutoff = 1.0
-```
-- Create one filter instance per landmark per axis (33 landmarks × 3 axes = 99 filters)
-- On each frame, pass raw landmark values through the filter before drawing
-- The filter adapts: when movement is slow (standing still), it smooths heavily (kills jitter). When movement is fast (mid-rep), it lets the raw signal through (minimal lag).
-- Alternative simpler approach: Exponential Moving Average with alpha=0.5, but this adds noticeable lag during fast reps.
-
-**Integration risks:**
-- Filters must be reset when camera flips or tracking is lost (landmarks jump to new positions). Reset when `flipCamera()` is called or when landmarks are absent for >0.5s.
-- Apply filtering BEFORE drawing but use the RAW unfiltered landmarks for form analysis. Smoothed values could mask real form errors.
-- Memory: 99 filter instances is trivial. Performance: one multiply + add per filter per frame is negligible.
-
-**From user:** Nothing. Pure visual improvement.
-
----
-
-### 2.2 Double-Pass Neon Skeleton Rendering
-
-**What:** Draw each bone segment twice for a "Tron-like" neon look: first pass with large shadow blur for a soft outer glow, second pass with thin white/bright inner line for crisp definition. Reads well over any camera background (dark gym, bright outdoor, etc.).
-
-**Where:**
-- `app/components/FormCheckCamera.tsx` — `drawSkeleton()` function. Change from single-pass drawing to double-pass.
-
-**How it works:**
-```
-Pass 1 (glow):  shadowBlur = 15, shadowColor = "rgba(0,255,170,0.6)", lineWidth = 6, strokeStyle = "#00ffaa"
-Pass 2 (crisp): shadowBlur = 0, lineWidth = 2, strokeStyle = "#ffffff"
-```
-- Same path data drawn twice — first for the bloom, then for the sharp inner line
-- Joint dots: filled circle at radius 5px, outer ring at radius 8px at 40% opacity
-- Active measured joint (e.g., knee during squat): animate outer ring radius between 8px and 12px over 600ms
-
-**Integration risks:**
-- Double draw calls = ~2× canvas rendering cost. Test on low-end phones. If performance drops below 24fps, fall back to single-pass rendering.
-- When combined with real-time color feedback (1.1), the glow color changes per-joint too. The inner white line stays white regardless — it's the glow that communicates the status.
-
-**From user:** Nothing. Visual-only change.
-
----
-
-### 2.3 Progress Ring Around Record Button
-
-**What:** Replace the static record button with one that has an SVG arc filling around it over 60 seconds. User can see at a glance how much recording time remains without reading numbers.
-
-**Where:**
-- `app/components/FormCheckCamera.tsx` — The controls section (currently around line ~300). Wrap the record button in an SVG ring.
-
-**How it works:**
-- SVG circle with `stroke-dasharray` = circumference, `stroke-dashoffset` decreasing as elapsed increases
-- Formula: `offset = circumference × (1 - elapsed / 60)`
-- Ring is 3px wide in accent color (#00FFAA) with a subtle `drop-shadow(0 0 4px rgba(0,255,170,0.3))` filter
-- Updates every second via the existing `elapsed` state
-
-**Integration risks:**
-- The record button already has `ring-4 ring-red-500/30` styling. The progress ring should be a separate SVG element positioned absolutely around the button, not replacing the existing ring.
-- On the results screen, the ring is not shown (already hidden by `phase !== "results"` check).
-
-**From user:** Nothing. Visual enhancement.
-
----
-
-### 2.4 Animated Score Reveal on Results
-
-**What:** When results appear, the score ring fills over 1.2 seconds with an ease-out curve while the number counts up from 0. A radial glow behind the ring pulses once. Makes the results screen feel satisfying and premium.
-
-**Where:**
-- `app/components/FormCheckCamera.tsx` — `ResultsView` component. Add animation on mount.
-
-**How it works:**
-- `useEffect` on mount: start a `requestAnimationFrame` loop
-- Over 1200ms (ease-out timing), animate:
-  - `stroke-dasharray` from `0 264` to `${(score/100)*264} 264`
-  - Number display from 0 to final score
-  - Background glow opacity: 0 → 0.6 → 0.3
-- Sound effect (optional): a subtle "ding" at completion if not muted
-
-**Integration risks:**
-- The score ring SVG currently uses inline `strokeDasharray` prop. Need to switch to a state-driven value that animates on mount.
-- Don't re-animate on re-renders — use a `hasAnimated` ref to run the animation only once.
-
-**From user:** Nothing. Pure delight moment.
-
----
-
-### 2.5 Lockout / Range of Motion Detection
-
-**What:** Flag incomplete hip extension at the top of deadlifts, incomplete lockout on overhead press, or partial range of motion. Measures the max angle reached at the "top" position of each rep.
-
-**Where:**
-- `app/lib/formAnalysis.ts` — New `analyzeLockout(frames, exerciseType)` function. New `LockoutCheck` type.
-- Integrates with rep detection (1.4) — check lockout at each rep's "top" position.
-
-**Lockout thresholds:**
-| Exercise | Joint | Full Lockout | Partial |
-|---|---|---|---|
-| Deadlift | Hip angle | > 170° | 150°-170° |
-| Overhead Press | Elbow angle | > 165° | 140°-165° |
-| Squat | Hip + Knee | Both > 160° | 140°-160° |
-| Bench Press | Elbow angle | > 160° | 135°-160° |
-
-**Integration risks:**
-- Lockout check depends on rep detection (1.4) to know when the "top" position occurs. Build after rep counting.
-- Some exercises intentionally avoid full lockout (e.g., continuous tension squats). Don't penalize heavily — flag as "note" not "error".
-
-**From user:** Side camera angle gives best detection for press and deadlift lockout.
-
----
-
-### 2.6 Rep Tempo / Speed Analysis
-
-**What:** Measure eccentric (lowering) vs concentric (lifting) phase duration for each rep. Useful for hypertrophy-focused users who want controlled eccentrics. Displayed as "2.1s ↓ / 1.0s ↑" per rep.
-
-**Where:**
-- `app/lib/formAnalysis.ts` — Add timing to the `RepDetector` state machine (1.4). Each state transition records a timestamp.
+- `app/lib/formAnalysis.ts` — Add timing to `RepDetector` state machine transitions.
 - `RepResult` type gets `eccentricMs` and `concentricMs` fields.
-- Results screen: show tempo in per-rep breakdown cards.
 
 **How it works:**
 Using the rep detection state machine timestamps:
-- Eccentric duration = time from "top"/"bottom" start to "bottom"/"top" (direction depends on exercise)
-- Concentric duration = time from "bottom"/"top" to "top"/"bottom"
-- Flag if eccentric is under 1s (too fast for hypertrophy) or if concentric is over 4s (potential grind/failure)
+- Eccentric = time from phase "descending" start to "bottom"
+- Concentric = time from "bottom" to "ascending" end / "top"
+- Integrated into the rule engine as `checkTempo` rule
 
-**Integration risks:**
-- Tempo analysis depends on rep detection (1.4). Build after.
-- Landmark jitter can cause micro-oscillations at the top/bottom positions, making phase transitions noisy. Use the 1-Euro filtered landmarks or require angle change > 5° to confirm a phase transition.
+**Scoring:**
+- Eccentric under 1s → deduction (too fast, uncontrolled, injury risk)
+- Eccentric 1.5-3s → good (controlled)
+- Concentric over 5s → flag (grinding, potential failure)
+- Rep-to-rep tempo consistency — getting faster = losing control
 
-**From user:** Nothing. Automatic measurement.
-
----
-
-## TIER 3 — Polish & Delight (When Ready)
-
-These features add gamification, social hooks, and edge-case handling.
+**Time under tension per rep:**
+- Total = eccentric + concentric (excluding lockout hold)
+- Displayed on per-rep detail cards
 
 ---
 
-### 3.1 Analyzing Phase — Scan Animation
+### 1.6 Exercise Coverage Expansion
 
-**What:** Replace the generic spinner during the analysis phase with a "scanning" animation: a gradient line sweeps top-to-bottom over the last captured skeleton, with text cycling through "Analyzing depth..." → "Checking symmetry..." → "Evaluating bar path..."
+**What:** Expand from 4 exercise types to 10+ with exercise-specific checks. Use exercise name (already passed as prop) instead of guessing from landmarks.
 
 **Where:**
-- `app/components/FormCheckCamera.tsx` — The analyzing overlay (currently around line ~272).
+- `app/lib/formRubrics.ts` — New file with rubric configs for all exercise categories
+- `app/lib/formAnalysis.ts` — `detectExerciseType()` uses `exerciseName` first, landmark heuristics as fallback only
+- `app/lib/formGuides.ts` — Already has 8 categories for camera angles, expand to match rubrics
 
-**How it works:**
-- When recording stops, freeze the last skeleton frame on the overlay canvas (don't clear it)
-- Overlay a CSS gradient animation — a bright horizontal line that `translateY` from 0% to 100% over 2 seconds
-- Rotate status text every 800ms through the analysis steps
-- Transition to results when `analyzeForm()` completes
+**New exercise checks:**
 
-**From user:** Nothing. Makes the wait feel intentional rather than broken.
+| Exercise | What 2D CAN Detect | Camera |
+|---|---|---|
+| **Lat Pulldown** | Arm symmetry, elbow path, lean-back angle, full ROM at top | Front |
+| **Cable Crossover** | Arm symmetry, elbow bend, torso lean, hand path | Front |
+| **Bicep Curl** | Elbow drift (swinging), shoulder movement (cheating), full ROM | Front |
+| **Tricep Pushdown** | Elbow locked at side vs drifting, full lockout | Side |
+| **Lateral Raise** | Arm height symmetry, elbow bend, shoulder shrug | Front |
+| **Leg Press** | Knee depth angle, lockout, back position | Side |
+| **Lunge** | Knee tracking, torso upright, depth, wobble/balance | Front |
+| **RDL** | Hip hinge angle, back flatness, knee bend | Side |
+| **Pull-up** | Full hang at bottom, chin over bar, symmetry, kipping | Front |
+| **Push-up** | Depth, elbow angle, hip sag (core weakness), head position | Side |
+
+**Honest boundary:**
+Exercises where we truly can't extract meaningful form data get: "This exercise has limited form analysis — we can check symmetry and range of motion." Score only on what we can actually measure. No fake 70s.
+
+**Future-proof for martial arts / yoga / calisthenics / running:**
+The rule engine architecture means any human movement with definable angle/position/speed checks can be added as a config. Examples:
+- Roundhouse kick: hip height, knee extension, guard hand position, kick speed, standing leg balance
+- Warrior II: hip angle, knee over ankle, arm alignment, hold stability
+- Running gait: foot strike vs hip position, arm swing symmetry, forward lean, knee drive
 
 ---
 
-### 3.2 Form Gamification — Streaks, PBs, Achievements
+## TIER 2 — Hands-Free & Audio Intelligence
 
-**What:** Track form streaks (consecutive sessions scoring 70+), personal bests per exercise (gold animation when set), and unlock achievements tied into the existing achievement system.
+These features make Form Check usable when the phone is across the room.
 
-**Achievements:**
+---
+
+### 2.1 Gesture Control — Thumbs Up to Start, Palm to Stop
+
+**What:** Use MediaPipe Gesture Recognizer to detect hand gestures for hands-free recording control. Phone is propped up 6-8 feet away — user can't tap the screen mid-set.
+
+**Where:**
+- `app/components/FormCheckCamera.tsx` — Load Gesture Recognizer alongside Pose Landmarker.
+- New gesture detection loop in `processFrame()`.
+
+**Implementation:**
+- MediaPipe **Gesture Recognizer** task — same WASM runtime as Pose, ~3MB additional model
+- Built-in gesture detection: thumbs up, open palm, fist, victory, pointing
+
+**Gesture mapping:**
+| Gesture | Action | Hold Duration |
+|---|---|---|
+| 👍 Thumbs up | Start countdown → begin recording | 1.0 second |
+| 🖐️ Open palm | Stop recording | 1.0 second |
+| Manual button | Fallback for both start/stop | Tap |
+
+**UX flow:**
+- Setup phase complete, all validation checks green
+- "Ready! 👍 Thumbs up to start" prompt appears
+- User gives thumbs up → gesture icon appears on screen, ring fills for 1 second
+- Ring completes → haptic confirmation + 3-2-1 countdown → recording begins
+- During recording: open palm held for 1 second → stop recording
+- Gesture detection checks every ~500ms during recording (pose detection takes priority on CPU)
+- Disable gesture detection during actual exercise movement — only check when in "top" position / standing still
+
+**Integration risks:**
+- Gesture Recognizer runs on the same video feed as Pose Landmarker — both can process the same frame
+- Performance: gesture detection is lighter than pose detection. Running both at 30fps may drop to 20fps on low-end devices — fall back to gesture check every 3rd frame
+- Thumbs up during exercise (e.g., grip) should not trigger — the 1-second hold + stillness requirement prevents this
+- Safari support: test MediaPipe Gesture Recognizer on Safari/iOS WebKit
+
+---
+
+### 2.2 Audio Coaching During Recording
+
+**What:** Spoken cues through the phone speaker while lifting. "Deeper", "Slow down", "Knees out", "Good rep". No UI needed — the voice IS the interface when you can't see the screen.
+
+**Where:**
+- `app/components/FormCheckCamera.tsx` — New `AudioCoach` class instantiated during recording.
+
+**Implementation:**
+- `SpeechSynthesis` API — zero dependency, works in all browsers
+- Short, calm cues — not a drill sergeant. Under 3 words each.
+- Only speaks when something is wrong or notably good — silence means you're fine
+
+**Cue library:**
+| Trigger | Cue | Cooldown |
+|---|---|---|
+| Knee cave detected (3+ frames) | "Knees out" | 5 seconds |
+| Back rounding detected | "Chest up" | 5 seconds |
+| Didn't hit depth on a rep | "Go deeper" | Per rep |
+| Eccentric under 1 second | "Slow down" | 5 seconds |
+| Good rep scored 85+ | "Good rep" | Per rep |
+| Rep counted | *chime sound* (not speech) | Per rep |
+| Form breaking down (3+ consecutive warns) | "Watch your form" | 8 seconds |
+
+**Settings:**
+- Toggle on/off (default: on)
+- Volume follows system media volume
+- No cue fires more than once per cooldown period
+- Maximum 1 spoken cue at a time — queue and drop if backed up
+
+**Integration risks:**
+- `SpeechSynthesis` may be blocked on iOS Safari without a user gesture — trigger it once silently during countdown to "unlock" it
+- Voice selection: use default system voice, keep rate at 1.0, pitch at 1.0
+- Don't speak during the first 2 seconds of recording (user is getting into position)
+
+---
+
+### 2.3 Intelligent Haptic Language
+
+**What:** Different vibration patterns communicate different information — learned over time. Phone is across the room, user FEELS the feedback without looking.
+
+**Where:**
+- `app/components/FormCheckCamera.tsx` — Enhanced haptic patterns in `processFrame()`.
+
+**Pattern language:**
+```
+Single short pulse  [30]                 — Rep counted
+Double pulse        [50, 30, 50]         — Form warning (knee cave, back rounding)
+Long buzz           [150]                — Danger — stop, form is breaking down
+Triple quick tap    [30, 20, 30, 20, 30] — Great set / recording complete
+Ascending pattern   [20, 20, 40, 20, 60] — Score improving across reps
+```
+
+**Already partially built** — current haptics fire for form breaks and rep completion. Expand the pattern vocabulary and add distinct patterns per error type so users learn what each means.
+
+---
+
+## TIER 3 — Intelligence & Analysis
+
+These features use the data we already capture to provide deeper insights.
+
+---
+
+### 3.1 Stability / Movement Quality Score
+
+**What:** Measure how smooth and controlled the joint path is during each rep. Wobbly path = poor motor control. Smooth arc = strong, stable movement.
+
+**How it works:**
+- For each tracked joint, record its (x, y) path during a rep
+- Calculate deviation from an ideal arc (polynomial fit or simple smoothness metric)
+- High deviation = low stability score
+- Integrated into the rule engine as `checkJointStability` rule
+
+**What this catches:**
+- Shaking under load (too heavy)
+- Compensatory movements (shifting weight to one side)
+- Balance issues on single-leg exercises
+- Bar wobble on press movements
+
+---
+
+### 3.2 Partial Rep Detection
+
+**What:** Flag reps that don't complete full ROM. Distinguish full reps from half reps with ~95% accuracy (QuickPose's benchmark).
+
+**How it works:**
+- Compare each rep's min angle to the rubric's depth threshold
+- If angle > threshold by more than 15°: partial rep
+- Marked with a distinct badge on the per-rep timeline
+- Partial reps scored separately — don't drag down the full rep average
+- "3 of 8 reps were partial — didn't reach full depth"
+
+---
+
+### 3.3 Fatigue Detection & Auto-Suggestions
+
+**What:** Track score degradation across reps within a set. Surface when form breaks down.
+
+**Metrics:**
+- Per-rep score trend line — detect downward slope
+- ROM decrease across reps (depth getting shallower)
+- Tempo increase across reps (reps getting faster = less control)
+- Stability decrease across reps (more wobble)
+
+**Output:**
+- "Form broke down after rep 5 of 8 — consider reducing weight by 5-10%"
+- Fatigue curve visualization on the per-rep timeline
+- Worst rep callout: "Rep 7 had the weakest form (52/100)"
+
+---
+
+### 3.4 Form Memory Across Sessions
+
+**What:** Track recurring faults across multiple sessions. Surface persistent issues and celebrate improvements.
+
+**Where:**
+- Query `form_checks` table for historical data on results screen.
+
+**Features:**
+- "Knee valgus detected in 4 of last 5 squat sessions" — escalating urgency in the "One Thing to Fix" card
+- "You fixed your knee cave — hasn't appeared in 3 sessions!" — celebrate improvements
+- Historical comparison auto-surfaced (no extra screen):
+  - Score: 74 → 82 ↑
+  - Depth: 98° → 91° ↑ (lower = deeper = better for squat)
+  - Faults: 5 → 2 ↓
+- Sparkline of last 5-10 scores for this exercise
+- Asymmetry trending: "Left side consistently weaker for 3 sessions — add unilateral work"
+
+---
+
+### 3.5 Auto-Detect Rest Periods (Multi-Set Support)
+
+**What:** When user stands still between sets, automatically pause analysis. Resume when movement starts. No manual start/stop per set.
+
+**How it works:**
+- Detect movement below threshold for 15+ seconds = rest period
+- Segment recording into sets automatically
+- Show per-set breakdown on results: "Set 1: 85, Set 2: 81, Set 3: 72"
+- "Your form dropped on set 3 — consider reducing weight"
+
+---
+
+### 3.6 Ghost Overlay on Video Playback
+
+**What:** Semi-transparent "ideal form" skeleton overlaid on their video during playback. Shows the gap between their movement and textbook form.
+
+**How it works:**
+- Reference skeleton data for common exercises (stored as angle sequences)
+- During playback, draw ideal skeleton at 20% opacity alongside real skeleton
+- Aligned at hip position for body-size independence
+- Only shown when user taps a specific rep — not always visible (avoids clutter)
+
+---
+
+## TIER 4 — Polish & Gamification
+
+---
+
+### 4.1 Analyzing Phase — Scan Animation
+
+Replace the spinner during analysis with a "scanning" animation: gradient line sweeps over the last skeleton frame, text cycles through "Analyzing depth..." → "Checking symmetry..." → "Measuring tempo..."
+
+---
+
+### 4.2 Form Gamification — Streaks, PBs, Achievements
+
 | Achievement | Criteria | Rarity |
 |---|---|---|
 | Perfect Form | Score 95+ on any exercise | Rare |
 | Symmetry Master | L/R delta under 3° | Uncommon |
-| Deep Squatter | Below parallel 5 sessions | Uncommon |
+| Deep Squatter | Below parallel 5 sessions in a row | Uncommon |
 | Consistency King | 10 form checks in 30 days | Rare |
 | Iron Posture | Deadlift with 0 back rounding flags, 3 sessions | Rare |
-| Rep Machine | 10+ reps in one form check with all scores 80+ | Epic |
+| Rep Machine | 10+ reps all scoring 80+ | Epic |
+| Form Streak | 5 consecutive sessions scoring 80+ | Rare |
+| Tempo Master | All reps with 2-3s eccentrics for 3 sessions | Epic |
 
-**Where:**
-- Depends on `form_checks` table (1.6)
-- Query history on results screen to check for PBs and streaks
-- Wire achievements into existing `achievements` table and `checkAchievements()` system
-- Form trend sparkline: query last 5 form checks for the same exercise, render as mini SVG sparkline on results
+Wire into existing `achievements` table and `checkAchievements()` system.
 
-**From user:** Must be logged in. Multiple form checks needed to unlock achievements and see trends.
-
----
-
-### 3.3 Shareable Results Card
-
-**What:** Generate a 1080×1920 image card (Instagram Story format) with the score ring, exercise name, date, rep count, and key metrics. User taps "Share" and gets the native share sheet. Subtle "Analyzed by Ascend" watermark = free marketing.
-
-**Where:**
-- `app/components/FormCheckCamera.tsx` — New `generateShareCard()` function in ResultsView.
-- Share button added to the results action row.
-
-**How it works:**
-- Create an offscreen `<canvas>` at 1080×1920
-- Draw: dark background, score ring (large), exercise name, date, metric cards (depth/symmetry/reps), tips, watermark
-- `canvas.toBlob()` → `new File()` → `navigator.share({ files: [...] })`
-- Fallback: if Web Share API unavailable, offer "Copy to clipboard" or download
-
-**Integration risks:**
-- `navigator.share()` with files requires HTTPS and user gesture (button click). Already satisfied since it's triggered by a button tap.
-- Canvas rendering for the card should use hardcoded colors (not CSS variables) since it's an offscreen canvas — same lesson as the skeleton drawing fix.
-
-**From user:** Tap "Share" button. Choose where to share.
+**Form XP:**
+- Earn XP for good form scores, not just completing sets
+- Bonus XP for improving on previous session
+- Ties into the existing character/leveling system
 
 ---
 
-### 3.4 Low Light Warning
+### 4.3 Shareable Results Card
 
-**What:** Detect poor lighting conditions and show a non-blocking advisory banner. Never blocks usage — just warns that accuracy may be reduced.
-
-**Where:**
-- `app/components/FormCheckCamera.tsx` — In `processFrame()`, sample brightness every ~60 frames.
-
-**How it works:**
-- Every 60 frames (~2 seconds), sample a 50×50 pixel region from the center of the hidden canvas via `getImageData()`
-- Calculate mean luminance: `(R + G + B) / 3` averaged across all sampled pixels
-- If mean luminance < 40 (out of 255), show a small banner: "Low light — accuracy may be reduced"
-- Banner auto-dismisses when light improves, or user can tap to dismiss
-
-**From user:** Nothing. Advisory only — user can ignore or adjust lighting.
+Generate a 1080×1920 image (Instagram Story format) with score ring, exercise name, radar chart, rep count, key metrics. `canvas.toBlob()` → `navigator.share({ files: [...] })`. Subtle "Analyzed by Ascend" watermark.
 
 ---
 
-### 3.5 Form Trend Sparkline on Results
+### 4.4 Low Light Warning
 
-**What:** Show a mini sparkline on the results screen comparing the last 5 form check scores for this exercise. If the score improved, show encouragement: "Your squat form improved 8 points this month."
-
-**Where:**
-- `app/components/FormCheckCamera.tsx` — ResultsView component. Add sparkline below the score.
-- Query `form_checks` WHERE `exercise_name` matches, ORDER BY `created_at` DESC, LIMIT 5.
-
-**How it works:**
-- On results mount, query the user's form check history for this exercise
-- Render as a small SVG path (sparkline) with dots at each data point
-- Current score highlighted with a larger dot
-- If current > previous: green text "↑X points from last check"
-- If current < previous: neutral text "X points below your best"
-- If first time: "First form check for this exercise!"
-
-**Depends on:** `form_checks` table (1.6)
-
-**From user:** At least 2 form checks on the same exercise to see trend data.
+Sample brightness every ~60 frames. If mean luminance < 40/255, show advisory banner: "Low light — accuracy may be reduced". Auto-dismiss when light improves.
 
 ---
 
-## FUTURE IDEAS (Backlog)
+### 4.5 Ambient Sound Design
 
-These are bigger features that require significant work but would make Form Check best-in-class.
+Subtle audio feedback beyond speech cues:
+- Soft chime on each good rep
+- Slightly lower tone on a weak rep
+- Ascending tone sequence when finishing with improving scores
+- Off by default, toggle in settings
 
 ---
 
-### Ghost Overlay / Ideal Form Comparison
-Record an "ideal rep" or load a reference skeleton, then overlay it semi-transparently on the user's camera feed so they can match their movement to the ideal. Aligned at the hip. Requires solving body proportion normalization — a 5'2" user and a 6'4" user have very different landmark positions for the same correct form.
+### 4.6 Battery / Performance Guard
 
-### Problem-Frame Replay with Timeline Scrubber
-After recording, let users scrub through annotated frames. Color the timeline green/amber/red by form quality per frame. Tap any point to see the skeleton at that moment with angle labels overlaid. Requires saving canvas frame snapshots during recording (memory-intensive — ~500KB per frame × 1800 frames at 30fps = ~900MB for 60s). Would need to downsample to ~5fps for replay.
+If `navigator.getBattery()` reports below 15%, warn that camera processing is battery-intensive. If frame processing time exceeds 100ms consistently, auto-reduce canvas resolution to maintain smooth overlay.
 
-### Multi-Set Support
-Allow recording across multiple sets with rest periods. Auto-detect rest (no significant movement for 30+ seconds) and segment the recording into sets. Show per-set and per-rep scores. "Your form dropped on set 4 — consider reducing weight."
+---
 
-### Velocity-Based Training (VBT) Metrics
-Track the speed of the concentric phase. Display bar velocity in m/s. Useful for powerlifters — when velocity drops below a threshold, the set should end (velocity loss = fatigue indicator). Requires calibrating pixel-to-real-world distance using known body proportions.
+### 4.7 Orientation Lock
 
-### Coach Mode — Record Someone Else
-The user holds the phone and records their training partner. Skeleton + real-time feedback shown on screen. The recorder can see cues and call them out verbally. Shared results sent to the lifter's account via QR code scan or friend link.
+Lock screen to portrait via `screen.orientation.lock('portrait')` when Form Check opens. Fallback: "Rotate to portrait" overlay if landscape detected.
 
-### Exercise Library Expansion
-Add form checks for bodyweight exercises: pull-ups (shoulder engagement, chin over bar), push-ups (elbow angle, body alignment), planks (hip sag detection), dips (depth + forward lean), and yoga poses (hold stability). Each needs its own detection rules, angle thresholds, and silhouette guides.
+---
 
-### Warm-Up Form Check
-Offer a quick form check during warm-up sets with lighter weight. Compare warm-up form to working set form — "Your depth decreased 12° between warm-up and working weight. You may need more warm-up sets or mobility work."
+## FUTURE — Expanding Beyond Weightlifting
 
-### Injury Risk Score
-Combine knee cave, back rounding, asymmetry, and lockout data into an injury risk assessment. Highlight the body regions under stress on a body diagram. "High stress on lower back — 3 of 5 reps showed rounding beyond safe threshold."
+The rule engine architecture makes these possible without new analysis code — just new configs.
 
-### Orientation Lock
-Lock screen to portrait via `screen.orientation.lock('portrait')` when Form Check opens. Fall back gracefully (some browsers restrict the API) with a "Rotate to portrait" overlay if landscape detected.
+### Martial Arts
+- **Punches:** wrist velocity, shoulder rotation, guard hand position, hip rotation
+- **Kicks:** hip height, knee chamber, extension at contact, standing leg balance, recovery to guard
+- **Stances:** width, weight distribution, knee bend, back angle
+- **Combos:** transition speed, return to guard between strikes
+- **Shadow boxing:** full session form analysis
 
-### Battery / Performance Guard
-If `navigator.getBattery()` reports below 15%, show a warning that camera processing is battery-intensive. If frame processing time (measured via `performance.now()` around the MediaPipe `detectForVideo` call) exceeds 100ms consistently, auto-reduce canvas resolution to 480×360 to maintain smooth skeleton overlay.
+### Yoga & Mobility
+- **Pose accuracy:** compare landmarks against reference pose template
+- **Hold stability:** measure wobble/drift during held poses
+- **Alignment:** "hips aren't square", "back knee should be at 90°"
+- **Flexibility tracking:** measure angles over weeks (hamstring, hip flexor, shoulder)
+
+### Calisthenics
+- **Push-ups:** depth, elbow angle, hip sag, head position
+- **Pull-ups:** full hang, chin over bar, kipping detection, symmetry
+- **Dips:** depth, forward lean, elbow flare
+- **Handstands:** body line, shoulder angle, balance deviation
+- **Pistol squats:** depth, balance, non-working leg position
+
+### Running & Cardio
+- **Running form:** foot strike vs hip, arm swing symmetry, forward lean, knee drive
+- **Jump rope:** jump height consistency, arm position
+- **Box jumps:** landing position, knee valgus on landing, hip extension
+
+### Rehab & Physical Therapy
+- **ROM tracking:** exact joint angles during rehab exercises over weeks
+- **Gait analysis:** stride length, symmetry, hip drop
+- **Compensation detection:** "favoring your right side"
+
+### Dance & Movement
+- **Choreography matching:** compare pose sequence against reference video frame-by-frame
+- **Rhythm sync:** are movements hitting musical beats?
+
+### Coach Mode
+User holds the phone and records their training partner. Skeleton + real-time feedback shown on screen. Shared results sent to lifter's account via QR code or friend link.
 
 ---
 
@@ -573,21 +670,44 @@ If `navigator.getBattery()` reports below 15%, show a warning that camera proces
 
 | Priority | Feature | Effort | Depends On |
 |---|---|---|---|
-| 1.1 | Real-time color feedback | Medium | — |
-| 1.2 | 3-2-1 countdown | Small | — |
-| 1.3 | Exercise camera guide | Medium | — |
-| 1.4 | Auto rep counting | Large | — |
-| 1.5 | Knee cave detection | Medium | 1.1 (for color) |
-| 1.6 | DB persistence | Medium | — |
-| 1.7 | Haptic cues | Small | 1.1 (for checks) |
-| 2.1 | 1-Euro jitter filter | Small | — |
-| 2.2 | Double-pass neon skeleton | Small | — |
-| 2.3 | Progress ring | Small | — |
-| 2.4 | Animated score reveal | Small | — |
-| 2.5 | Lockout / ROM detection | Medium | 1.4 (rep counting) |
-| 2.6 | Rep tempo analysis | Medium | 1.4 (rep counting) |
-| 3.1 | Analyzing scan animation | Small | — |
-| 3.2 | Form gamification | Medium | 1.6 (DB) |
-| 3.3 | Shareable card | Medium | — |
-| 3.4 | Low light warning | Small | — |
-| 3.5 | Form trend sparkline | Small | 1.6 (DB) |
+| **TIER 1 — Core** | | | |
+| 1.1 | Scoring engine rewrite + rule engine | Large | — |
+| 1.2 | Camera setup flow + validation | Medium | — |
+| 1.3 | Report card UI redesign | Large | 1.1 (scoring data) |
+| 1.4 | Video recording for playback | Medium | — |
+| 1.5 | Tempo & speed analysis | Medium | 1.1 (rule engine) |
+| 1.6 | Exercise coverage expansion (10+ types) | Large | 1.1 (rule engine) |
+| **TIER 2 — Hands-Free** | | | |
+| 2.1 | Gesture control (thumbs up / palm) | Medium | — |
+| 2.2 | Audio coaching during recording | Medium | 1.1 (real-time checks) |
+| 2.3 | Intelligent haptic language | Small | 1.1 (real-time checks) |
+| **TIER 3 — Intelligence** | | | |
+| 3.1 | Stability / movement quality score | Medium | 1.1 (rule engine) |
+| 3.2 | Partial rep detection | Small | 1.1 (rep detection) |
+| 3.3 | Fatigue detection + auto-suggestions | Medium | 1.1 (per-rep scoring) |
+| 3.4 | Form memory across sessions | Medium | DB (already built) |
+| 3.5 | Auto-detect rest periods (multi-set) | Medium | 1.1 (rep detection) |
+| 3.6 | Ghost overlay on playback | Large | 1.4 (video playback) |
+| **TIER 4 — Polish** | | | |
+| 4.1 | Analyzing scan animation | Small | — |
+| 4.2 | Form gamification (streaks, XP, achievements) | Medium | DB (already built) |
+| 4.3 | Shareable results card | Medium | 1.3 (report card) |
+| 4.4 | Low light warning | Small | — |
+| 4.5 | Ambient sound design | Small | — |
+| 4.6 | Battery / performance guard | Small | — |
+| 4.7 | Orientation lock | Small | — |
+
+---
+
+## Technical Notes
+
+- **Canvas 2D context CANNOT use CSS custom properties** — must use hardcoded color strings for all skeleton/overlay drawing
+- **1-Euro Filter** already implemented (minCutoff=1.0, beta=0.007, dCutoff=1.0) — apply to raw landmarks before drawing, use RAW landmarks for analysis
+- **Double-pass neon rendering** already implemented — Pass 1: thick glow (shadowBlur:16), Pass 2: thin white crisp line
+- **Per-joint color feedback** already implemented — STATUS_COLORS: good (#00ffaa), warn (#ffb800), bad (#ff4466)
+- **PWA service worker** (`ascend-v1`) caches compiled JS — pre-cache MediaPipe WASM + model files for offline gym use
+- **Lazy loading** via `next/dynamic` with `ssr: false` — Form Check adds zero to initial bundle
+- **`navigator.vibrate()`** for haptics — Android Chrome only, graceful no-op on Safari
+- **`SpeechSynthesis`** for audio cues — unlock with silent utterance during countdown on iOS
+- **`MediaRecorder`** for video capture — webm on Chrome/Firefox, may need mp4 fallback on Safari
+- **MediaPipe Gesture Recognizer** — ~3MB model, same WASM runtime as Pose Landmarker
