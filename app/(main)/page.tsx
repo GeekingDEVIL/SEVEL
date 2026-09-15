@@ -291,19 +291,14 @@ export default function Dashboard() {
       let weeklyVolume = 0;
       const { data: weekSessions } = await supabase
         .from("workout_sessions")
-        .select("id")
+        .select("id, total_volume")
         .eq("user_id", user.id)
         .eq("status", "completed")
         .eq("sex", userSex)
         .gte("date", mondayStr);
 
       if (weekSessions && weekSessions.length > 0) {
-        const sessionIds = weekSessions.map((s: any) => s.id);
-        const { data: setLogs } = await supabase
-          .from("exercise_set_logs")
-          .select("weight, reps")
-          .in("workout_session_id", sessionIds);
-        weeklyVolume = (setLogs ?? []).reduce((sum, l: any) => sum + ((Number(l.weight) || 0) * (Number(l.reps) || 0)), 0);
+        weeklyVolume = weekSessions.reduce((sum: number, s: any) => sum + (Number(s.total_volume) || 0), 0);
       }
 
       let prCount = 0;
@@ -362,16 +357,14 @@ export default function Dashboard() {
       const lastWeekMondayStr = toDateString(lastWeekMonday);
       const { data: lastWeekSessions } = await supabase
         .from("workout_sessions")
-        .select("id")
+        .select("id, total_volume")
         .eq("user_id", user.id)
         .eq("status", "completed")
         .eq("sex", userSex)
         .gte("date", lastWeekMondayStr)
         .lt("date", mondayStr);
       if (lastWeekSessions && lastWeekSessions.length > 0) {
-        const lwIds = lastWeekSessions.map((s: any) => s.id);
-        const { data: lwLogs } = await supabase.from("exercise_set_logs").select("weight, reps").in("workout_session_id", lwIds);
-        const lastWeekVol = (lwLogs ?? []).reduce((s, l: any) => s + ((Number(l.weight) || 0) * (Number(l.reps) || 0)), 0);
+        const lastWeekVol = lastWeekSessions.reduce((s: number, ses: any) => s + (Number(ses.total_volume) || 0), 0);
         if (lastWeekVol > 0) {
           const progression = ((weeklyVolume - lastWeekVol) / lastWeekVol) * 100;
           strength = Math.min(100, Math.max(0, Math.round(50 + progression * 2)));
