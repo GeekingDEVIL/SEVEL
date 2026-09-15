@@ -25,7 +25,7 @@ export async function detectFatigue(
 ): Promise<FatigueAlert[]> {
   const alerts: FatigueAlert[] = [];
 
-  // Get last 6 completed sessions with ratings
+  // Get enough sessions to cover 3-4 occurrences of each exercise in a split
   const { data: sessions } = await supabase
     .from("workout_sessions")
     .select("id, date, rating, total_volume, total_sets, title")
@@ -33,7 +33,7 @@ export async function detectFatigue(
     .eq("sex", userSex)
     .eq("status", "completed")
     .order("date", { ascending: false })
-    .limit(6);
+    .limit(20);
 
   if (!sessions || sessions.length < 3) return alerts;
 
@@ -55,57 +55,62 @@ export async function detectFatigue(
     }
   }
 
-  // 2. Weight drops: compare per-exercise avg weight vs last 3 sessions
-  const sessionIds = sessions.slice(0, 3).map((s: any) => s.id);
-  const olderIds = sessions.slice(3).map((s: any) => s.id);
+  // 2. Weight drops: compare per-exercise across their own session history
+  const allIds = sessions.map((s: any) => s.id);
+  const sessionOrder = new Map(sessions.map((s: any, i: number) => [s.id, i]));
 
-  if (olderIds.length > 0) {
-    const [{ data: recentLogs }, { data: olderLogs }] = await Promise.all([
-      supabase
-        .from("exercise_set_logs")
-        .select("exercise_id, weight, reps, exercises(name)")
-        .in("workout_session_id", sessionIds)
-        .eq("is_warmup", false),
-      supabase
-        .from("exercise_set_logs")
-        .select("exercise_id, weight, reps, exercises(name)")
-        .in("workout_session_id", olderIds)
-        .eq("is_warmup", false),
-    ]);
+  const { data: allLogs } = await supabase
+    .from("exercise_set_logs")
+    .select("exercise_id, weight, workout_session_id, exercises(name)")
+    .in("workout_session_id", allIds)
+    .eq("is_warmup", false);
 
-    if (recentLogs && olderLogs) {
-      const recentAvg = avgWeightByExercise(recentLogs);
-      const olderAvg = avgWeightByExercise(olderLogs);
-      const droppedExercises: string[] = [];
-
-      for (const [exId, recent] of Object.entries(recentAvg)) {
-        const older = olderAvg[exId];
-        if (older && older.avgWeight > 0) {
-          const dropPct = ((older.avgWeight - recent.avgWeight) / older.avgWeight) * 100;
-          if (dropPct >= 10) {
-            droppedExercises.push(recent.name);
-          }
-        }
+  if (allLogs && allLogs.length > 0) {
+    const byExercise: Record<string, { name: string; sessions: Map<string, number[]> }> = {};
+    for (const l of allLogs) {
+      const w = Number(l.weight) || 0;
+      if (w === 0) continue;
+      if (!byExercise[l.exercise_id]) {
+        byExercise[l.exercise_id] = { name: (l.exercises as any)?.name || l.exercise_id, sessions: new Map() };
       }
+      const group = byExercise[l.exercise_id];
+      if (!group.sessions.has(l.workout_session_id)) group.sessions.set(l.workout_session_id, []);
+      group.sessions.get(l.workout_session_id)!.push(w);
+    }
 
-      if (droppedExercises.length >= 2) {
-        alerts.push({
-          type: "weight_drop",
-          severity: droppedExercises.length >= 3 ? "critical" : "warning",
-          message: "Weight dropping on multiple lifts",
-          detail: `${droppedExercises.join(", ")} down 10%+ from your recent average.`,
-          exercises: droppedExercises,
-        });
+    const droppedExercises: string[] = [];
+    for (const [, ex] of Object.entries(byExercise)) {
+      const sorted = [...ex.sessions.entries()].sort((a, b) =>
+        (sessionOrder.get(a[0]) ?? 99) - (sessionOrder.get(b[0]) ?? 99)
+      );
+      if (sorted.length < 2) continue;
+      const recentAvg = sorted[0][1].reduce((s, w) => s + w, 0) / sorted[0][1].length;
+      const baselineWeights = sorted.slice(1, 4).flatMap(([, ws]) => ws);
+      const baselineAvg = baselineWeights.reduce((s, w) => s + w, 0) / baselineWeights.length;
+      if (baselineAvg > 0) {
+        const dropPct = ((baselineAvg - recentAvg) / baselineAvg) * 100;
+        if (dropPct >= 10) droppedExercises.push(ex.name);
       }
+    }
+
+    if (droppedExercises.length >= 2) {
+      alerts.push({
+        type: "weight_drop",
+        severity: droppedExercises.length >= 3 ? "critical" : "warning",
+        message: "Weight dropping on multiple lifts",
+        detail: `${droppedExercises.join(", ")} down 10%+ from your recent baseline.`,
+        exercises: droppedExercises,
+      });
     }
   }
 
-  // 3. RPE overreach: average RPE > 8.5 across recent sessions
-  if (sessionIds.length > 0) {
+  // 3. RPE overreach: average RPE > 8.5 across last 3 sessions
+  const recentIds = sessions.slice(0, 3).map((s: any) => s.id);
+  if (recentIds.length > 0) {
     const { data: rpeLogs } = await supabase
       .from("exercise_set_logs")
       .select("rpe")
-      .in("workout_session_id", sessionIds)
+      .in("workout_session_id", recentIds)
       .not("rpe", "is", null);
 
     if (rpeLogs && rpeLogs.length >= 5) {
@@ -122,23 +127,6 @@ export async function detectFatigue(
   }
 
   return alerts;
-}
-
-function avgWeightByExercise(logs: any[]): Record<string, { avgWeight: number; name: string }> {
-  const groups: Record<string, { total: number; count: number; name: string }> = {};
-  for (const l of logs) {
-    const id = l.exercise_id;
-    const w = Number(l.weight) || 0;
-    if (w === 0) continue;
-    if (!groups[id]) groups[id] = { total: 0, count: 0, name: (l.exercises as any)?.name || id };
-    groups[id].total += w;
-    groups[id].count += 1;
-  }
-  const result: Record<string, { avgWeight: number; name: string }> = {};
-  for (const [id, g] of Object.entries(groups)) {
-    result[id] = { avgWeight: g.total / g.count, name: g.name };
-  }
-  return result;
 }
 
 // ── Full Report ──
