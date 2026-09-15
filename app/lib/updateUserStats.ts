@@ -26,18 +26,26 @@ export async function updateUserStats(userId: string) {
 
   const { data: plans } = await supabase
     .from("recurring_plans")
-    .select("weekday, is_rest")
+    .select("weekday, is_rest, template_id")
     .eq("user_id", userId)
     .eq("sex", sex);
-  const restDays = new Set((plans ?? []).filter((p: any) => p.is_rest).map((p: any) => p.weekday));
+  const scheduledDays = new Set(
+    (plans ?? []).filter((p: any) => !p.is_rest && p.template_id).map((p: any) => p.weekday)
+  );
+  const hasSchedule = scheduledDays.size > 0;
   const completedDates = new Set((sessions ?? []).map((s: any) => s.date));
 
+  const fmt = (dt: Date) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
   let streak = 0;
   const check = new Date();
+  const todayIsTrainingDay = hasSchedule ? scheduledDays.has(check.getDay()) : true;
+  if (todayIsTrainingDay && !completedDates.has(fmt(check))) {
+    check.setDate(check.getDate() - 1);
+  }
   for (let i = 0; i < 120; i++) {
-    const d = `${check.getFullYear()}-${String(check.getMonth() + 1).padStart(2, "0")}-${String(check.getDate()).padStart(2, "0")}`;
+    const d = fmt(check);
     const wd = check.getDay();
-    if (restDays.has(wd)) { check.setDate(check.getDate() - 1); continue; }
+    if (hasSchedule && !scheduledDays.has(wd)) { check.setDate(check.getDate() - 1); continue; }
     if (completedDates.has(d)) { streak++; check.setDate(check.getDate() - 1); } else break;
   }
 
