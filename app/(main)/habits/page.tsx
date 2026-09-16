@@ -5,7 +5,7 @@ import {
   Flame, Plus, Check, Trash2, Star, Sparkles, Sun, Moon, Clock,
   Link, Dumbbell, Droplets, Scale, ChevronLeft, ChevronRight,
   X, Shield, Zap, Trophy, Target, TrendingUp, AlertTriangle,
-  Gift, SkipForward, Edit3, Calendar, Ban, Award, Scroll,
+  Gift, SkipForward, Edit3, Calendar, Ban, Award, Scroll, Share2,
 } from "lucide-react";
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from "framer-motion";
 import { supabase } from "../../lib/supabase";
@@ -22,7 +22,9 @@ import {
   calculateMomentum, calculateStreak, getComboMultiplier, getPerfectWeekMultiplier, countPerfectWeeks,
   getDailyQuests, rollLootDrop, getReviveCost, getPrestigeMultiplier, canPrestige,
   generateConstellation, getAuraLevel, AURA_STYLES, generateInsights, generateCorrelationInsights,
+  generateMilestoneCard, generateMonthlyCard,
 } from "../../lib/habitEngine";
+import { shareCardImage } from "../../lib/shareCard";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -343,7 +345,7 @@ function DailyRings({ habits, completionSet, today }: { habits: Habit[]; complet
 
 // ─── Month calendar ─────────────────────────────────────────────────────────
 
-function MonthCalendar({ habits, completionSet, skipSet }: { habits: Habit[]; completionSet: Set<string>; skipSet: Set<string> }) {
+function MonthCalendar({ habits, completionSet, skipSet, username }: { habits: Habit[]; completionSet: Set<string>; skipSet: Set<string>; username?: string }) {
   const [monthOffset, setMonthOffset] = useState(0);
   const now = new Date();
   const viewDate = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
@@ -362,7 +364,19 @@ function MonthCalendar({ habits, completionSet, skipSet }: { habits: Habit[]; co
     <div className="rounded-xl border border-[var(--fg-06)] bg-[var(--fg-02)] p-4">
       <div className="flex items-center justify-between mb-3">
         <button onClick={() => setMonthOffset((p) => p - 1)} className="p-1 text-[var(--fg-30)] hover:text-[var(--fg-60)]"><ChevronLeft size={16} /></button>
-        <p className="text-xs font-mono font-bold text-[var(--fg-60)]">{monthName} {year}</p>
+        <div className="flex items-center gap-2">
+          <p className="text-xs font-mono font-bold text-[var(--fg-60)]">{monthName} {year}</p>
+          <button
+            onClick={() => {
+              const card = generateMonthlyCard(habits, completionSet, month, year);
+              shareCardImage(card, username);
+            }}
+            className="p-1 text-[var(--fg-20)] hover:text-[rgb(var(--accent-rgb))] transition-colors"
+            title="Share month summary"
+          >
+            <Share2 size={12} />
+          </button>
+        </div>
         <button onClick={() => monthOffset < 0 ? setMonthOffset((p) => p + 1) : null} className={`p-1 ${monthOffset < 0 ? "text-[var(--fg-30)] hover:text-[var(--fg-60)]" : "text-[var(--fg-10)]"}`}><ChevronRight size={16} /></button>
       </div>
       <div className="grid grid-cols-7 gap-1">
@@ -598,8 +612,8 @@ function LootDropToast({ drop, onClose }: { drop: LootDrop; onClose: () => void 
 
 // ─── Milestone toast ────────────────────────────────────────────────────────
 
-function MilestoneToast({ emoji, label, xp, onClose }: { emoji: string; label: string; xp: number; onClose: () => void }) {
-  useEffect(() => { const t = setTimeout(onClose, 5000); return () => clearTimeout(t); }, [onClose]);
+function MilestoneToast({ emoji, label, xp, habitName, milestoneDays, username, onClose }: { emoji: string; label: string; xp: number; habitName: string; milestoneDays: number; username?: string; onClose: () => void }) {
+  useEffect(() => { const t = setTimeout(onClose, 8000); return () => clearTimeout(t); }, [onClose]);
   return (
     <motion.div
       className="fixed top-16 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-amber-500/30 bg-gradient-to-r from-amber-500/15 to-amber-600/10 px-5 py-3 shadow-2xl text-center"
@@ -611,6 +625,16 @@ function MilestoneToast({ emoji, label, xp, onClose }: { emoji: string; label: s
       <p className="text-2xl mb-1">{emoji}</p>
       <p className="text-sm font-bold text-amber-300">{label} STREAK!</p>
       <p className="text-[10px] font-mono text-amber-400/60">+{xp} XP milestone bonus</p>
+      <button
+        onClick={() => {
+          const habit = { name: habitName } as Habit;
+          const card = generateMilestoneCard(habit, milestoneDays);
+          shareCardImage(card, username);
+        }}
+        className="mt-2 flex items-center gap-1.5 mx-auto text-[10px] font-mono text-amber-300/70 hover:text-amber-300 transition-colors"
+      >
+        <Share2 size={11} /> Share
+      </button>
     </motion.div>
   );
 }
@@ -635,7 +659,7 @@ function UndoToast({ message, onUndo, onClose }: { message: string; onUndo: () =
 // ─── Main page ──────────────────────────────────────────────────────────────
 
 export default function HabitsPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { enabledKeys } = useModules();
 
   // Core state
@@ -656,7 +680,7 @@ export default function HabitsPage() {
   const [comboPop, setComboPop] = useState<{ multiplier: number; habitId: string } | null>(null);
   const [perfectDay, setPerfectDay] = useState(false);
   const [lootDrop, setLootDrop] = useState<LootDrop | null>(null);
-  const [milestoneToast, setMilestoneToast] = useState<{ emoji: string; label: string; xp: number } | null>(null);
+  const [milestoneToast, setMilestoneToast] = useState<{ emoji: string; label: string; xp: number; habitName: string; milestoneDays: number } | null>(null);
   const [undoAction, setUndoAction] = useState<{ message: string; undo: () => void } | null>(null);
 
   // Add habit form state
@@ -832,7 +856,7 @@ export default function HabitsPage() {
           habit_id: habit.id, user_id: user.id, milestone_days: milestone.days, xp_awarded: milestone.xp,
         });
         triggerHaptic("success");
-        setMilestoneToast({ emoji: milestone.emoji, label: milestone.label, xp: milestone.xp });
+        setMilestoneToast({ emoji: milestone.emoji, label: milestone.label, xp: milestone.xp, habitName: habit.name, milestoneDays: milestone.days });
       }
     }
 
@@ -1206,7 +1230,7 @@ export default function HabitsPage() {
             })}
 
             {/* Calendar view */}
-            {view === "calendar" && <MonthCalendar habits={habits} completionSet={completionSet} skipSet={skipSet} />}
+            {view === "calendar" && <MonthCalendar habits={habits} completionSet={completionSet} skipSet={skipSet} username={profile?.username} />}
 
             {/* Constellation view */}
             {view === "constellation" && <ConstellationSky habits={habits} completionSet={completionSet} />}
@@ -1616,7 +1640,7 @@ export default function HabitsPage() {
         {lootDrop && <LootDropToast drop={lootDrop} onClose={() => setLootDrop(null)} />}
       </AnimatePresence>
       <AnimatePresence>
-        {milestoneToast && <MilestoneToast {...milestoneToast} onClose={() => setMilestoneToast(null)} />}
+        {milestoneToast && <MilestoneToast {...milestoneToast} username={profile?.username} onClose={() => setMilestoneToast(null)} />}
       </AnimatePresence>
       <AnimatePresence>
         {undoAction && <UndoToast message={undoAction.message} onUndo={undoAction.undo} onClose={() => setUndoAction(null)} />}

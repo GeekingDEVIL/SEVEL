@@ -20,7 +20,12 @@ const SCRAMBLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#%&";
 
 function useScrambleText(text: string, duration = 600) {
   const [display, setDisplay] = useState(text);
+  const mountedRef = useRef(false);
   useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      setDisplay(text);
+    }
     let frame = 0;
     const total = Math.ceil(duration / 16);
     const id = setInterval(() => {
@@ -68,13 +73,6 @@ function GoogleIcon() {
   );
 }
 
-function AppleIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
-    </svg>
-  );
-}
 
 function Typewriter({
   texts,
@@ -119,7 +117,7 @@ function Typewriter({
   }, [charIdx, deleting, display, idx, texts, speed, deleteSpeed, delay]);
 
   return (
-    <span className="text-[var(--fg-50)] font-mono text-[10px] tracking-[0.25em]">
+    <span className="text-[var(--fg-50)] font-mono text-[10px] tracking-[0.25em]" suppressHydrationWarning>
       {display}
       <span className="animate-pulse text-[rgb(var(--accent-rgb))]">|</span>
     </span>
@@ -223,13 +221,6 @@ export default function LoginPage() {
     });
   }
 
-  async function handleApple() {
-    await supabase.auth.signInWithOAuth({
-      provider: "apple",
-      options: { redirectTo: `${window.location.origin}/` },
-    });
-  }
-
   function toggle() {
     setIsSignIn((v) => !v);
     setError(null);
@@ -317,6 +308,7 @@ export default function LoginPage() {
         {/* Branding */}
         <div
           className="flex flex-col items-center pt-12 md:pt-16 pb-4"
+          suppressHydrationWarning
           style={{
             animation: mounted ? "fadeSlideUp 0.6s ease-out" : "none",
           }}
@@ -326,7 +318,7 @@ export default function LoginPage() {
               className="absolute inset-[-6px] rounded-lg bg-[rgb(var(--accent-rgb))]"
               style={{ animation: "breathe 4s ease-in-out infinite", filter: "blur(12px)" }}
             />
-            <div className="relative w-11 h-11 rounded-lg border border-[var(--fg-12)] bg-[var(--bg-primary)] flex items-center justify-center text-[var(--text-primary)] font-bold text-lg">
+            <div className="relative w-11 h-11 rounded-lg border border-[var(--fg-12)] bg-[var(--bg-primary)] flex items-center justify-center text-[var(--text-primary)] font-bold text-lg" suppressHydrationWarning>
               S
             </div>
           </div>
@@ -344,6 +336,7 @@ export default function LoginPage() {
             <div
               ref={cardRef}
               className="relative rounded-3xl p-6 md:p-8 overflow-hidden"
+              suppressHydrationWarning
               style={{
                 background: "var(--fg-01)",
                 backdropFilter: "blur(10px) saturate(1.5) brightness(1.15)",
@@ -367,6 +360,7 @@ export default function LoginPage() {
                   <h1
                     className="text-2xl font-bold text-[var(--text-primary)] mb-1 font-mono tracking-tight"
                     aria-label={heading}
+                    suppressHydrationWarning
                   >
                     {scrambledHeading}
                   </h1>
@@ -489,6 +483,7 @@ export default function LoginPage() {
                       type="submit"
                       disabled={loading}
                       className="w-full flex items-center justify-center gap-2 rounded-xl bg-white text-black font-semibold text-sm py-3.5 hover:bg-[var(--fg-90)] active:scale-[0.97] transition-colors disabled:opacity-50 mt-1"
+                      suppressHydrationWarning
                       style={{
                         animation:
                           !loading && mounted
@@ -517,24 +512,14 @@ export default function LoginPage() {
                   </div>
 
                   {/* Social buttons */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      onClick={handleGoogle}
-                      className="flex items-center justify-center gap-2 rounded-xl bg-[var(--fg-05)] border border-[var(--fg-08)] py-3 text-sm text-[var(--fg-70)] hover:bg-[var(--fg-10)] hover:border-[var(--fg-15)] hover:text-[var(--text-primary)] active:scale-[0.97] transition-all"
-                    >
-                      <GoogleIcon />
-                      <span className="hidden sm:inline">Google</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleApple}
-                      className="flex items-center justify-center gap-2 rounded-xl bg-[var(--fg-05)] border border-[var(--fg-08)] py-3 text-sm text-[var(--fg-70)] hover:bg-[var(--fg-10)] hover:border-[var(--fg-15)] hover:text-[var(--text-primary)] active:scale-[0.97] transition-all"
-                    >
-                      <AppleIcon />
-                      <span className="hidden sm:inline">Apple</span>
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={handleGoogle}
+                    className="flex items-center justify-center gap-2 w-full rounded-xl bg-[var(--fg-05)] border border-[var(--fg-08)] py-3 text-sm text-[var(--fg-70)] hover:bg-[var(--fg-10)] hover:border-[var(--fg-15)] hover:text-[var(--text-primary)] active:scale-[0.97] transition-all"
+                  >
+                    <GoogleIcon />
+                    <span>Sign in with Google</span>
+                  </button>
 
                   {/* Toggle */}
                   <p className="text-center text-[var(--fg-35)] text-sm mt-5">

@@ -214,17 +214,26 @@ export default function Dashboard() {
       const { data: c } = await supabase.from("user_stats").select("*").eq("user_id", user.id).eq("sex", userSex).maybeSingle();
       if (cancelled) return;
       if (c) {
-        const [{ data: wl }, { data: ls }, { data: pd }] = await Promise.all([
+        const now = new Date();
+        const dayOfWeek = now.getDay();
+        const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+        const monday = new Date(now);
+        monday.setDate(now.getDate() + mondayOffset);
+        const mondayStr = toDateString(monday);
+
+        const [{ data: wl }, { data: ls }, { data: pd }, { data: weekSess }] = await Promise.all([
           supabase.from("body_weight_logs").select("weight, logged_at").eq("user_id", user.id).eq("sex", userSex).order("logged_at", { ascending: false }).limit(2),
           supabase.from("workout_sessions").select("completed_at").eq("user_id", user.id).eq("status", "completed").eq("sex", userSex).order("completed_at", { ascending: false }).limit(1),
           supabase.from("profile_body_stats").select("goal").eq("user_id", user.id).eq("sex", userSex).maybeSingle(),
+          supabase.from("workout_sessions").select("total_volume").eq("user_id", user.id).eq("status", "completed").eq("sex", userSex).gte("date", mondayStr),
         ]);
         let bw: number | null = null, bwc: number | null = null, rp: number | null = null;
         if (wl?.length) { bw = Number(wl[0].weight); if (wl.length > 1) bwc = Number((wl[0].weight - wl[1].weight).toFixed(1)); }
         if (ls?.[0]?.completed_at) rp = Math.min(100, Math.round(((Date.now() - new Date(ls[0].completed_at).getTime()) / 3600000) / 48 * 100));
         const sk = c.current_streak ?? 0;
+        const weekVol = (weekSess ?? []).reduce((sum: number, s: any) => sum + (Number(s.total_volume) || 0), 0);
         if (!cancelled) {
-          setStats({ streak: sk, totalWorkouts: c.total_workouts ?? 0, weeklyVolume: Math.round(Number(c.total_volume) || 0), prCount: c.achievement_count ?? 0, totalXp: c.total_xp ?? 0, strength: 50, endurance: 0, consistency: Math.min(100, Math.round((sk / 30) * 100)), discipline: 70, bodyWeight: bw, bodyWeightChange: bwc, recoveryPct: rp, fatigue: rp !== null ? Math.max(0, 100 - rp) : 0, goal: pd?.goal ?? null });
+          setStats({ streak: sk, totalWorkouts: c.total_workouts ?? 0, weeklyVolume: Math.round(weekVol), prCount: c.achievement_count ?? 0, totalXp: c.total_xp ?? 0, strength: 50, endurance: 0, consistency: Math.min(100, Math.round((sk / 30) * 100)), discipline: 70, bodyWeight: bw, bodyWeightChange: bwc, recoveryPct: rp, fatigue: rp !== null ? Math.max(0, 100 - rp) : 0, goal: pd?.goal ?? null });
           setStatsLoaded(true);
         }
         return;

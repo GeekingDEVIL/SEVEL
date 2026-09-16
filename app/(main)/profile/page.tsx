@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { User, LogOut, Plus, Trash2, Check, Download, AlertTriangle, Eye, EyeOff, Target, Dumbbell, Shield, Globe, Camera, Pencil, X, Flame, Phone, Mail, ChevronDown, Building2, Home, Briefcase, ShieldCheck, Zap, Crown, Star } from "lucide-react";
+import { User, LogOut, Plus, Trash2, Check, Download, AlertTriangle, Eye, EyeOff, Target, Dumbbell, Shield, Globe, Camera, Pencil, X, Flame, Phone, Mail, ChevronDown, Building2, Home, Briefcase, ShieldCheck, Zap, Crown, Star, Share2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/AuthProvider";
@@ -13,6 +13,7 @@ import { staggerContainer, staggerItem } from "../../lib/motion";
 import { GOAL_OPTIONS } from "../../lib/goals";
 import { updateUserStats } from "../../lib/updateUserStats";
 import { autoCompleteHabits } from "../../lib/habitAutoComplete";
+import { shareProfileBadge } from "../../lib/shareCard";
 import { ACCENT_PRESETS, DEFAULT_ACCENT, getAccentPreset, applyAccent, type AccentKey, type ThemeMode } from "../../lib/theme";
 import { useTheme } from "../../lib/useTheme";
 import { getFullCalorieSummary, ageFromDOB, type GoalType, type Sex, type ActivityLevel, type DietPreference, type CalorieSummary } from "../../lib/calorieEngine";
@@ -1036,6 +1037,25 @@ export default function ProfilePage() {
                                 {nextRank && (
                                     <p className="text-[8px] font-mono text-[var(--fg-20)] mt-1.5">Next rank: <span className={rank.color}>{nextRank.name}</span> at Lv. {nextRank.minLevel}</p>
                                 )}
+                            </button>
+
+                            {/* Share profile badge */}
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    shareProfileBadge({
+                                        username: profile?.username ?? "Unknown",
+                                        level: levelInfo.level,
+                                        rankName: rank.name,
+                                        totalWorkouts: totalSessions,
+                                        totalXp: levelInfo.totalXp,
+                                        streak: 0,
+                                    });
+                                }}
+                                className="flex items-center gap-1.5 px-3 py-1.5 mt-2 rounded-lg bg-[var(--fg-04)] border border-[var(--fg-08)] text-[var(--fg-40)] hover:text-[rgb(var(--accent-light-rgb))] hover:border-[rgb(var(--accent-light-rgb)/0.3)] transition text-[10px] font-mono"
+                            >
+                                <Share2 size={12} />
+                                Share Profile
                             </button>
 
                             {/* Social handles */}
