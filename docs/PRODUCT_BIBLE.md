@@ -1,11 +1,11 @@
-# ASCEND Product Bible — Reference Summary
+# SEVEL Product Bible — Reference Summary
 
 > Source: [Interactive Bible artifact](https://claude.ai/code/artifact/c0c496f3-6133-4ee5-9b69-26cc04a7417a) (v2.0, Aug 2026)
 > This file captures all strategic, design, and architecture decisions. Read this instead of the 1500-line HTML.
 
 ---
 
-## 1. What Is ASCEND
+## 1. What Is SEVEL
 
 All-in-one fitness super-app: gym logging + nutrition + female health + running/cardio + martial arts + yoga + calisthenics + habits + health vitals + social/guilds + AI coaching + RPG gamification.
 
@@ -294,12 +294,12 @@ Privacy policy, Terms of Service, Cookie policy, DMCA policy
 
 ## 15. Competitive Landscape
 
-ASCEND vs competitors — no single app combines gym + nutrition + cardio + martial arts + social + RPG + AI.
+SEVEL vs competitors — no single app combines gym + nutrition + cardio + martial arts + social + RPG + AI.
 
-| App | Focus | Price | ASCEND Advantage |
+| App | Focus | Price | SEVEL Advantage |
 |-----|-------|-------|-----------------|
-| Strong | Gym only | $4.99/mo | ASCEND does gym + everything else |
-| MyFitnessPal | Nutrition | $9.99/mo | ASCEND adds AI NL logging, cheaper |
-| Strava | Cardio + Social | $7.99/mo | ASCEND adds gym, RPG, AI |
+| Strong | Gym only | $4.99/mo | SEVEL does gym + everything else |
+| MyFitnessPal | Nutrition | $9.99/mo | SEVEL adds AI NL logging, cheaper |
+| Strava | Cardio + Social | $7.99/mo | SEVEL adds gym, RPG, AI |
 
 **Learn from:** Strong's fast logging UX, Strava's addictive social feed, MFP's food DB size (counter with AI + OpenFoodFacts).

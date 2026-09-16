@@ -1,4 +1,4 @@
-# ASCEND — Form Check v2: Gold Standard Upgrade Plan
+# SEVEL — Form Check v2: Gold Standard Upgrade Plan
 
 > Complete redesign spec for the AI-powered form analysis system.
 > Goal: best browser-based form checker that exists — no app install, no LiDAR, no subscription.
@@ -263,7 +263,7 @@ adapt the rubric instead of blocking. Reduce weight of checks that need the reco
 **Screenshot-ready design:**
 - Score, exercise name, radar chart all fit in one phone screen
 - Looks good as a screenshot without a share button
-- Subtle "Analyzed by Ascend" watermark in corner
+- Subtle "Analyzed by Sevel" watermark in corner
 
 ---
 
@@ -591,7 +591,7 @@ Wire into existing `achievements` table and `checkAchievements()` system.
 
 ### 4.3 Shareable Results Card
 
-Generate a 1080×1920 image (Instagram Story format) with score ring, exercise name, radar chart, rep count, key metrics. `canvas.toBlob()` → `navigator.share({ files: [...] })`. Subtle "Analyzed by Ascend" watermark.
+Generate a 1080×1920 image (Instagram Story format) with score ring, exercise name, radar chart, rep count, key metrics. `canvas.toBlob()` → `navigator.share({ files: [...] })`. Subtle "Analyzed by Sevel" watermark.
 
 ---
 
@@ -705,7 +705,7 @@ User holds the phone and records their training partner. Skeleton + real-time fe
 - **1-Euro Filter** already implemented (minCutoff=1.0, beta=0.007, dCutoff=1.0) — apply to raw landmarks before drawing, use RAW landmarks for analysis
 - **Double-pass neon rendering** already implemented — Pass 1: thick glow (shadowBlur:16), Pass 2: thin white crisp line
 - **Per-joint color feedback** already implemented — STATUS_COLORS: good (#00ffaa), warn (#ffb800), bad (#ff4466)
-- **PWA service worker** (`ascend-v1`) caches compiled JS — pre-cache MediaPipe WASM + model files for offline gym use
+- **PWA service worker** (`sevel-v1`) caches compiled JS — pre-cache MediaPipe WASM + model files for offline gym use
 - **Lazy loading** via `next/dynamic` with `ssr: false` — Form Check adds zero to initial bundle
 - **`navigator.vibrate()`** for haptics — Android Chrome only, graceful no-op on Safari
 - **`SpeechSynthesis`** for audio cues — unlock with silent utterance during countdown on iOS

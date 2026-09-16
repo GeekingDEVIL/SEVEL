@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { useAuth } from "./AuthProvider";
 import { supabase } from "./supabase";
 
-const EQUIPMENT_EVENT = "ascend:equipment-changed";
-const EQUIPMENT_KEY = "ascend_equipment";
+const EQUIPMENT_EVENT = "sevel:equipment-changed";
+const EQUIPMENT_KEY = "sevel_equipment";
 
 type EquipmentCache = {
   equipmentAccess: string[];

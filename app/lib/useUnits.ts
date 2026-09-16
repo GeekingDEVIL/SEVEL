@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { useAuth } from "./AuthProvider";
 import { supabase } from "./supabase";
 
-const UNIT_KEY = "ascend_unit";
-const UNIT_EVENT = "ascend:unit-changed";
+const UNIT_KEY = "sevel_unit";
+const UNIT_EVENT = "sevel:unit-changed";
 
 export type WeightUnit = "kg" | "lbs";
 

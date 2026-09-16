@@ -57,9 +57,9 @@ export default function Sidebar() {
   return (
     <aside className="hidden md:flex flex-col w-64 border-r backdrop-blur-xl h-screen sticky top-0 z-20 p-5 shrink-0 overflow-y-auto" style={{ borderColor: "rgb(var(--accent-rgb) / 0.1)", background: "color-mix(in srgb, var(--bg-primary) 92%, transparent)" }}>
       <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 border flex items-center justify-center font-bold text-sm" style={{ borderColor: "rgb(var(--accent-rgb) / 0.4)", color: "rgb(var(--accent-rgb))" }}>A</div>
+        <div className="w-10 h-10 border flex items-center justify-center font-bold text-sm" style={{ borderColor: "rgb(var(--accent-rgb) / 0.4)", color: "rgb(var(--accent-rgb))" }}>S</div>
         <div>
-          <p className="font-bold text-[var(--text-primary)] leading-tight">ASCEND</p>
+          <p className="font-bold text-[var(--text-primary)] leading-tight">SEVEL</p>
           <p className="text-[9px] tracking-widest text-[var(--fg-40)]">YOUR TRAINING SYSTEM</p>
         </div>
       </div>
@@ -88,7 +88,7 @@ export default function Sidebar() {
       <div className="pt-4 border-t text-xs font-mono text-[var(--fg-40)] mt-3" style={{ borderColor: "rgb(var(--accent-rgb) / 0.1)" }}>
         <p>PROTOCOL</p>
         <p className="text-[var(--text-primary)] font-bold text-sm">PHASE 01</p>
-        <p className="text-[10px] mt-1">ASCEND / 1.1.0</p>
+        <p className="text-[10px] mt-1">SEVEL / 1.1.0</p>
       </div>
     </aside>
   );

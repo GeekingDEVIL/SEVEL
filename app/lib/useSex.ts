@@ -5,8 +5,8 @@ import { useAuth } from "./AuthProvider";
 import { supabase } from "./supabase";
 import type { Sex } from "./calorieEngine";
 
-const SEX_EVENT = "ascend:sex-changed";
-const SEX_KEY = "ascend_sex";
+const SEX_EVENT = "sevel:sex-changed";
+const SEX_KEY = "sevel_sex";
 
 export function useSex() {
   const { user } = useAuth();

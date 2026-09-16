@@ -12,8 +12,8 @@ import {
   DEFAULT_ENABLED,
 } from "./modules";
 
-const MODULES_KEY = "ascend_modules";
-const MODULES_EVENT = "ascend:modules-changed";
+const MODULES_KEY = "sevel_modules";
+const MODULES_EVENT = "sevel:modules-changed";
 
 export function useModules() {
   const { user } = useAuth();

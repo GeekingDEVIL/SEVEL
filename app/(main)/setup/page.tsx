@@ -317,7 +317,7 @@ export default function SetupPage() {
         </motion.div>
 
         <motion.div variants={staggerItem} className="text-center py-2">
-          <p className="text-[9px] font-mono text-[var(--fg-15)]">ASCEND v0.3.0</p>
+          <p className="text-[9px] font-mono text-[var(--fg-15)]">SEVEL v0.3.0</p>
         </motion.div>
       </motion.div>
     </div>

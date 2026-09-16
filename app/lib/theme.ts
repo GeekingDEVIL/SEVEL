@@ -2,7 +2,7 @@
 
 export type ThemeMode = "dark" | "oled" | "daylight" | "auto";
 
-const THEME_KEY = "ascend_theme";
+const THEME_KEY = "sevel_theme";
 
 export function getStoredTheme(): ThemeMode {
   if (typeof window === "undefined") return "dark";

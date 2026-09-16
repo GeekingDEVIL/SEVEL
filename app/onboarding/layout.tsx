@@ -28,7 +28,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
 export default function OnboardingLayout({ children }: { children: React.ReactNode }) {
     useEffect(() => {
-        applyAccent(localStorage.getItem("ascend_accent"));
+        applyAccent(localStorage.getItem("sevel_accent"));
     }, []);
 
     return (

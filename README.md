@@ -1,4 +1,4 @@
-# ASCEND — Adaptive Fitness Operating System
+# SEVEL — Adaptive Fitness Operating System
 
 Gamified fitness tracking web app. Mobile-first, built for the gym.
 
@@ -172,7 +172,7 @@ SetEntry: { index, weight, reps, duration, distance, note, completed, logId, is_
 - All state lives in `useWorkoutSession()` hook — page component just destructures and renders
 - **DB is source of truth** — on reload, active session + completed sets restored from Supabase
 - **Draft persistence**: unsaved weight/reps inputs are saved to localStorage keyed by sessionId, restored on page reload or screen wake
-- `localStorage` stores `ascend_active_session` flag + `ascend_session_draft_{id}` per-session drafts + `ascend_offline_queue` for failed writes
+- `localStorage` stores `sevel_active_session` flag + `sevel_session_draft_{id}` per-session drafts + `sevel_offline_queue` for failed writes
 - **Wake Lock API**: screen stays on during active workout session, re-acquired on tab visibility change
 - **Offline queue**: failed DB writes (set completions) are queued in localStorage and flushed when connectivity returns
 - **PWA**: installable via manifest.json, service worker caches shell + static assets, network-first for navigation

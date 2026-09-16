@@ -23,7 +23,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     return (
       <div className="min-h-screen bg-[var(--bg-sunken)] flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 border border-[var(--border)] flex items-center justify-center font-bold text-sm text-[var(--text-muted)] rounded shimmer">A</div>
+          <div className="w-10 h-10 border border-[var(--border)] flex items-center justify-center font-bold text-sm text-[var(--text-muted)] rounded shimmer">S</div>
           <div className="h-1 w-24 rounded-full bg-[var(--border-subtle)] shimmer" />
         </div>
       </div>
@@ -36,7 +36,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   useTheme();
   useEffect(() => {
-    applyAccent(localStorage.getItem("ascend_accent"));
+    applyAccent(localStorage.getItem("sevel_accent"));
   }, []);
 
   return (

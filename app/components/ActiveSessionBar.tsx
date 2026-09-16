@@ -11,7 +11,7 @@ export default function ActiveSessionBar() {
 
     useEffect(() => {
         function check() {
-            setActive(localStorage.getItem("ascend_active_session") === "true");
+            setActive(localStorage.getItem("sevel_active_session") === "true");
         }
         check();
         const id = setInterval(check, 2000);

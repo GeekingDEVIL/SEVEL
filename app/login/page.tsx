@@ -12,7 +12,7 @@ const orbitron = Orbitron({ subsets: ["latin"], weight: ["700"] });
 const TAGLINES = [
   "YOUR BODY IS YOUR MACHINE",
   "DISCIPLINE IS FREEDOM",
-  "ASCEND BEYOND LIMITS",
+  "RAISE YOUR LEVEL",
   "BUILT DIFFERENT",
 ];
 
@@ -144,7 +144,7 @@ export default function LoginPage() {
   useEffect(() => {
     setMounted(true);
     try {
-      if (localStorage.getItem("ascend_has_signed_in")) setIsReturning(true);
+      if (localStorage.getItem("sevel_has_signed_in")) setIsReturning(true);
     } catch {}
   }, []);
 
@@ -176,7 +176,7 @@ export default function LoginPage() {
       return;
     }
     try {
-      localStorage.setItem("ascend_has_signed_in", "1");
+      localStorage.setItem("sevel_has_signed_in", "1");
     } catch {}
     setAuthSuccess(true);
     setTimeout(() => {
@@ -327,13 +327,13 @@ export default function LoginPage() {
               style={{ animation: "breathe 4s ease-in-out infinite", filter: "blur(12px)" }}
             />
             <div className="relative w-11 h-11 rounded-lg border border-[var(--fg-12)] bg-[var(--bg-primary)] flex items-center justify-center text-[var(--text-primary)] font-bold text-lg">
-              A
+              S
             </div>
           </div>
           <span
             className={`${orbitron.className} text-[11px] tracking-[0.35em] text-[var(--fg-40)] mb-2`}
           >
-            ASCEND
+            SEVEL
           </span>
           <Typewriter texts={TAGLINES} />
         </div>

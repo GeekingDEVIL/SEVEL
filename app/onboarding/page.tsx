@@ -26,7 +26,7 @@ const CHALLENGE_OPTIONS = [
 
 const CHALLENGE_MICROCOPY: Record<string, string> = {
     consistency: "Having a plan for every workout makes it easier to stay consistent.",
-    guidance: "ASCEND gives you a structured plan and set targets for every exercise.",
+    guidance: "SEVEL gives you a structured plan and set targets for every exercise.",
     variety: "Templates and freestyle sessions keep your training varied.",
     time: "Your plan adapts to the session length you tell us works for you.",
 };
@@ -321,7 +321,7 @@ export default function OnboardingPage() {
                                 <Sparkles size={22} className="text-[rgb(var(--accent-light-rgb))]" />
                             </div>
                             <p className="text-[10px] font-mono tracking-[0.2em] text-[rgb(var(--accent-light-rgb)/0.6)] mb-1">STEP 1 OF {TOTAL_STEPS}</p>
-                            <h2 className="text-2xl font-bold text-[var(--fg-95)] mb-1">Welcome to ASCEND</h2>
+                            <h2 className="text-2xl font-bold text-[var(--fg-95)] mb-1">Welcome to SEVEL</h2>
                             <p className="text-sm text-[var(--fg-40)] mb-6">What's your main training goal?</p>
                             <CustomSelect options={GOAL_OPTIONS} value={goal} onChange={setGoal} placeholder="Select a goal..." searchable={false} />
                         </div>
@@ -637,7 +637,7 @@ export default function OnboardingPage() {
                             </div>
                             <p className="text-[10px] font-mono tracking-[0.2em] text-[rgb(var(--accent-light-rgb)/0.6)] mb-1">STEP 14 OF {TOTAL_STEPS}</p>
                             <h2 className="text-2xl font-bold text-[var(--fg-95)] mb-2">Your training adapts as you go</h2>
-                            <p className="text-sm text-[var(--fg-40)] max-w-xs mx-auto">ASCEND tracks your volume, recovery, and PRs after every session, and adjusts recommendations automatically — no manual reprogramming needed.</p>
+                            <p className="text-sm text-[var(--fg-40)] max-w-xs mx-auto">SEVEL tracks your volume, recovery, and PRs after every session, and adjusts recommendations automatically — no manual reprogramming needed.</p>
                         </div>
                     )}
 

@@ -202,14 +202,14 @@ export default function ProfilePage() {
     const [activeGymProfile, setActiveGymProfile] = useState<string | null>(null);
 
     useEffect(() => {
-        const storedAccent = localStorage.getItem("ascend_accent") as AccentKey | null;
+        const storedAccent = localStorage.getItem("sevel_accent") as AccentKey | null;
         setAccent(getAccentPreset(storedAccent).key);
     }, []);
 
     function selectAccent(key: AccentKey) {
         setAccent(key);
         applyAccent(key);
-        localStorage.setItem("ascend_accent", key);
+        localStorage.setItem("sevel_accent", key);
     }
 
     const loadProfile = useCallback(async () => {
@@ -566,7 +566,7 @@ export default function ProfilePage() {
         const a = document.createElement("a");
         a.href = url;
         const _ed = new Date();
-        a.download = `ascend-full-export-${_ed.getFullYear()}-${String(_ed.getMonth() + 1).padStart(2, "0")}-${String(_ed.getDate()).padStart(2, "0")}.csv`;
+        a.download = `sevel-full-export-${_ed.getFullYear()}-${String(_ed.getMonth() + 1).padStart(2, "0")}-${String(_ed.getDate()).padStart(2, "0")}.csv`;
         a.click();
         URL.revokeObjectURL(url);
     }

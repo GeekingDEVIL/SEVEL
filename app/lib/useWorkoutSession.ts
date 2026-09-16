@@ -135,8 +135,8 @@ export function useWorkoutSession() {
     const cachedInit = useRef<{ exercises: WorkoutExercise[]; title: string; status: SessionStatus; loadHint: LoadHint } | null>(null);
     if (cachedInit.current === null) {
         try {
-            const c = JSON.parse(localStorage.getItem("ascend_workout_cache") || "null");
-            const hasActiveSession = localStorage.getItem("ascend_active_session") === "true";
+            const c = JSON.parse(localStorage.getItem("sevel_workout_cache") || "null");
+            const hasActiveSession = localStorage.getItem("sevel_active_session") === "true";
             if (c && c.date === today && c.sex === userSex && c.exercises?.length) {
                 const hint: LoadHint = c.completed ? "completed" : hasActiveSession ? "active" : "default";
                 cachedInit.current = { exercises: c.exercises, title: c.title || "Workout", status: "loading", loadHint: hint };
@@ -230,9 +230,9 @@ export function useWorkoutSession() {
                 .limit(1);
             const plan = plans?.[0] ?? null;
 
-            if (!plan) { localStorage.removeItem("ascend_workout_cache"); setStatus("no_plan"); return; }
-            if (plan.is_rest) { localStorage.removeItem("ascend_workout_cache"); setStatus("rest_day"); return; }
-            if (!plan.template_id) { localStorage.removeItem("ascend_workout_cache"); setStatus("no_plan"); return; }
+            if (!plan) { localStorage.removeItem("sevel_workout_cache"); setStatus("no_plan"); return; }
+            if (plan.is_rest) { localStorage.removeItem("sevel_workout_cache"); setStatus("rest_day"); return; }
+            if (!plan.template_id) { localStorage.removeItem("sevel_workout_cache"); setStatus("no_plan"); return; }
 
             setLoadProgress(20);
             const planTitle = (plan as any).workout_templates?.name || "Workout";
@@ -271,7 +271,7 @@ export function useWorkoutSession() {
             setExercisesList(mapped);
             if (mapped.length === 0) { setStatus("no_plan"); return; }
 
-            try { localStorage.setItem("ascend_workout_cache", JSON.stringify({ date: today, sex, title: planTitle, exercises: mapped })); } catch {}
+            try { localStorage.setItem("sevel_workout_cache", JSON.stringify({ date: today, sex, title: planTitle, exercises: mapped })); } catch {}
 
             if (sex === "female") {
                 try {
@@ -308,7 +308,7 @@ export function useWorkoutSession() {
                 .order("created_at", { ascending: true });
             if (completedSessions && completedSessions.length > 0 && completedSessions.length >= MAX_SESSIONS_PER_DAY) {
                 setLoadProgress(80);
-                localStorage.removeItem("ascend_active_session");
+                localStorage.removeItem("sevel_active_session");
                 const lastDone = completedSessions[completedSessions.length - 1];
                 setTodaySessions(completedSessions.map((s: any) => ({ id: s.id, sets: s.total_sets ?? 0, volume: Number(s.total_volume) || 0, duration: s.duration_seconds ?? 0, xp: s.xp_earned ?? 0 })));
                 const { data: doneLogRows } = await supabase.from("exercise_set_logs").select("*").eq("workout_session_id", lastDone.id);
@@ -324,7 +324,7 @@ export function useWorkoutSession() {
                 setSummary({ sets: lastDone.total_sets ?? 0, volume: Number(lastDone.total_volume) || 0, duration: lastDone.duration_seconds ?? 0, xpBreakdown: { base: 0, setCompletion: 0, completionBonus: 0, prBonus: 0, progressionBonus: 0, consistencyBonus: 0, total: lastDone.xp_earned ?? 0, details: [] }, level: lvl, rankName: getRank(lvl).name });
                 setLoadProgress(100);
                 setStatus("completed");
-                try { const c = JSON.parse(localStorage.getItem("ascend_workout_cache") || "null"); if (c) { c.completed = true; localStorage.setItem("ascend_workout_cache", JSON.stringify(c)); } } catch {}
+                try { const c = JSON.parse(localStorage.getItem("sevel_workout_cache") || "null"); if (c) { c.completed = true; localStorage.setItem("sevel_workout_cache", JSON.stringify(c)); } } catch {}
                 return;
             }
 
@@ -382,11 +382,11 @@ export function useWorkoutSession() {
                     if (logMap[ex.id]?.some((s) => s.is_warmup)) restoredWarmups.add(ex.id);
                 }
                 if (restoredWarmups.size > 0) setWarmupExercises(restoredWarmups);
-                localStorage.setItem("ascend_active_session", "true");
+                localStorage.setItem("sevel_active_session", "true");
                 setStatus("active");
                 setExpandedId(mapped[0]?.id ?? null);
             } else if (completedSessions && completedSessions.length > 0) {
-                localStorage.removeItem("ascend_active_session");
+                localStorage.removeItem("sevel_active_session");
                 const lastDone = completedSessions[completedSessions.length - 1];
                 setTodaySessions(completedSessions.map((s: any) => ({ id: s.id, sets: s.total_sets ?? 0, volume: Number(s.total_volume) || 0, duration: s.duration_seconds ?? 0, xp: s.xp_earned ?? 0 })));
                 const { data: doneLogRows2 } = await supabase.from("exercise_set_logs").select("*").eq("workout_session_id", lastDone.id);
@@ -402,14 +402,14 @@ export function useWorkoutSession() {
                 setSummary({ sets: lastDone.total_sets ?? 0, volume: Number(lastDone.total_volume) || 0, duration: lastDone.duration_seconds ?? 0, xpBreakdown: { base: 0, setCompletion: 0, completionBonus: 0, prBonus: 0, progressionBonus: 0, consistencyBonus: 0, total: lastDone.xp_earned ?? 0, details: [] }, level: lvl2, rankName: getRank(lvl2).name });
                 setLoadProgress(100);
                 setStatus("completed");
-                try { const c = JSON.parse(localStorage.getItem("ascend_workout_cache") || "null"); if (c) { c.completed = true; localStorage.setItem("ascend_workout_cache", JSON.stringify(c)); } } catch {}
+                try { const c = JSON.parse(localStorage.getItem("sevel_workout_cache") || "null"); if (c) { c.completed = true; localStorage.setItem("sevel_workout_cache", JSON.stringify(c)); } } catch {}
             } else {
                 // Double-check: if cache says completed but query returned null/empty, re-query once
-                const cacheCheck = (() => { try { const c = JSON.parse(localStorage.getItem("ascend_workout_cache") || "null"); return c?.completed === true; } catch { return false; } })();
+                const cacheCheck = (() => { try { const c = JSON.parse(localStorage.getItem("sevel_workout_cache") || "null"); return c?.completed === true; } catch { return false; } })();
                 if (cacheCheck && !completedSessions) {
                     const { data: retry } = await supabase.from("workout_sessions").select("id, total_sets, total_volume, duration_seconds, xp_earned").eq("user_id", user.id).eq("date", today).eq("sex", sex).eq("status", "completed").order("created_at", { ascending: true });
                     if (retry && retry.length > 0) {
-                        localStorage.removeItem("ascend_active_session");
+                        localStorage.removeItem("sevel_active_session");
                         const lastDone = retry[retry.length - 1];
                         setTodaySessions(retry.map((s: any) => ({ id: s.id, sets: s.total_sets ?? 0, volume: Number(s.total_volume) || 0, duration: s.duration_seconds ?? 0, xp: s.xp_earned ?? 0 })));
                         const { data: doneLogRows3 } = await supabase.from("exercise_set_logs").select("*").eq("workout_session_id", lastDone.id);
@@ -428,8 +428,8 @@ export function useWorkoutSession() {
                         return;
                     }
                 }
-                localStorage.removeItem("ascend_active_session");
-                localStorage.removeItem("ascend_workout_cache");
+                localStorage.removeItem("sevel_active_session");
+                localStorage.removeItem("sevel_workout_cache");
                 const initLogs: Record<string, SetEntry[]> = {};
                 mapped.forEach((ex) => {
                     const hint = hints[ex.exercise_id];
@@ -682,7 +682,7 @@ export function useWorkoutSession() {
         setSessionId(data.id);
         activeSessionRef.current = data.id;
         setStartedAt(new Date(data.started_at).getTime());
-        localStorage.setItem("ascend_active_session", "true");
+        localStorage.setItem("sevel_active_session", "true");
         setStatus("active");
         setExpandedId(exercisesList[0]?.id ?? null);
         requestWakeLock();
@@ -771,12 +771,12 @@ export function useWorkoutSession() {
         setExpandedId(mapped[0]?.id ?? null);
         setFreestyleExercises([]);
         setStartingFreestyle(false);
-        localStorage.setItem("ascend_active_session", "true");
+        localStorage.setItem("sevel_active_session", "true");
         setStatus("active");
     }
 
     /* ── DRAFT PERSISTENCE (3.1) ── */
-    const draftKey = sessionId ? `ascend_session_draft_${sessionId}` : null;
+    const draftKey = sessionId ? `sevel_session_draft_${sessionId}` : null;
 
     function saveDraft(exId: string, idx: number, field: string, val: string) {
         if (!draftKey) return;
@@ -797,7 +797,7 @@ export function useWorkoutSession() {
 
     function restoreDrafts(logMap: Record<string, SetEntry[]>, sid: string): Record<string, SetEntry[]> {
         try {
-            const raw = localStorage.getItem(`ascend_session_draft_${sid}`);
+            const raw = localStorage.getItem(`sevel_session_draft_${sid}`);
             if (!raw) return logMap;
             const draft = JSON.parse(raw);
             const merged = { ...logMap };
@@ -1153,14 +1153,14 @@ export function useWorkoutSession() {
             if (!existingPlan?.length) setShowFreestylePrompt(true);
         }
 
-        localStorage.removeItem("ascend_active_session");
+        localStorage.removeItem("sevel_active_session");
         activeSessionRef.current = null;
         clearDraft();
         releaseWakeLock();
         setTodaySessions(prev => [...prev, { id: sessionId!, duration: dur, sets: totalSets, volume: totalVolume, xp: xp.total }]);
         setSummary({ duration: dur, sets: totalSets, volume: totalVolume, xpBreakdown: xp, level: lvlAfter, rankName: getRank(lvlAfter).name });
         setStatus("completed");
-        try { const c = JSON.parse(localStorage.getItem("ascend_workout_cache") || "null"); if (c) { c.completed = true; localStorage.setItem("ascend_workout_cache", JSON.stringify(c)); } } catch {}
+        try { const c = JSON.parse(localStorage.getItem("sevel_workout_cache") || "null"); if (c) { c.completed = true; localStorage.setItem("sevel_workout_cache", JSON.stringify(c)); } } catch {}
         setRestRemaining(null);
     }
 
@@ -1198,7 +1198,7 @@ export function useWorkoutSession() {
 
         ctx.fillStyle = accent;
         ctx.font = "bold 64px ui-monospace, monospace";
-        ctx.fillText("ASCEND", 540, 180);
+        ctx.fillText("SEVEL", 540, 180);
         ctx.fillStyle = "var(--fg-30)";
         ctx.font = "24px ui-monospace, monospace";
         ctx.fillText("YOUR TRAINING SYSTEM", 540, 220);
@@ -1252,7 +1252,7 @@ export function useWorkoutSession() {
 
         ctx.fillStyle = "var(--fg-20)";
         ctx.font = "24px ui-monospace, monospace";
-        ctx.fillText("ascend.app", 540, 1850);
+        ctx.fillText("sevel.app", 540, 1850);
 
         return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob), "image/png"));
     }
@@ -1262,10 +1262,10 @@ export function useWorkoutSession() {
         const blob = await generateShareImage();
         if (!blob) { setSharing(false); return; }
 
-        const file = new File([blob], `ascend-${today}.png`, { type: "image/png" });
+        const file = new File([blob], `sevel-${today}.png`, { type: "image/png" });
         if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
             try {
-                await navigator.share({ files: [file], title: "ASCEND Workout Summary" });
+                await navigator.share({ files: [file], title: "SEVEL Workout Summary" });
             } catch {
                 // user cancelled
             }
@@ -1273,7 +1273,7 @@ export function useWorkoutSession() {
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
-            a.download = `ascend-${today}.png`;
+            a.download = `sevel-${today}.png`;
             a.click();
             URL.revokeObjectURL(url);
         }

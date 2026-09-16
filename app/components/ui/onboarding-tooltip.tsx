@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
-const STORAGE_KEY = "ascend_onboarding_dismissed";
+const STORAGE_KEY = "sevel_onboarding_dismissed";
 
 function getDismissed(): Set<string> {
   try {

@@ -1,4 +1,4 @@
-const CACHE_NAME = "ascend-v1";
+const CACHE_NAME = "sevel-v1";
 const PRECACHE_URLS = ["/", "/workout", "/schedule"];
 
 self.addEventListener("install", (event) => {

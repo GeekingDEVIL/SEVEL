@@ -1,4 +1,4 @@
-# ASCEND — Workout Logging Upgrade Plan
+# SEVEL — Workout Logging Upgrade Plan
 
 > Master feature list for the session logging overhaul.
 > Every feature maps to exact files, describes integration points with existing systems,
@@ -258,9 +258,9 @@ These fix the "data loss on screen-off" problem and add offline support.
 **What:** Every keystroke in weight/reps/duration inputs saves to localStorage. On page reload, restore unsaved input alongside DB-saved completed sets.
 
 **Where:**
-- `app/(main)/workout/page.tsx` line 566 — `updateSet()` function. After updating React state, also write to localStorage key `ascend_session_draft`.
+- `app/(main)/workout/page.tsx` line 566 — `updateSet()` function. After updating React state, also write to localStorage key `sevel_session_draft`.
 - `app/(main)/workout/page.tsx` lines 327-351 — Session restore. After loading completed sets from DB, overlay any draft values from localStorage.
-- On session finish: clear `ascend_session_draft`.
+- On session finish: clear `sevel_session_draft`.
 - Shape: `{ [exId: string]: { [setIndex: number]: { weight, reps, duration, distance } } }`
 
 **Integration risks:**

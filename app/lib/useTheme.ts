@@ -9,7 +9,7 @@ import {
   resolveTheme,
 } from "./theme";
 
-const THEME_EVENT = "ascend:theme-changed";
+const THEME_EVENT = "sevel:theme-changed";
 
 function subscribe(cb: () => void) {
   window.addEventListener(THEME_EVENT, cb);

@@ -664,8 +664,8 @@ export default function WorkoutCompleteCard({
                                         <circle className="seal-inner" cx="36" cy="36" r="26" />
                                         <circle cx="36" cy="36" r="20" fill="rgba(201,148,62,0.08)" stroke="#c9943e" strokeWidth="0.5"/>
                                         <path id="sealTextPath" d="M36 8 A28 28 0 1 1 35.99 8" fill="none"/>
-                                        <text className="seal-text-cls"><textPath href="#sealTextPath" startOffset="0%">{`· ASCEND · ${summary.rankName.toUpperCase()} · LV.${summary.level} · SCROLL #${sessionCount} ·`}</textPath></text>
-                                        <text className="seal-center" x="36" y="40" textAnchor="middle">A</text>
+                                        <text className="seal-text-cls"><textPath href="#sealTextPath" startOffset="0%">{`· SEVEL · ${summary.rankName.toUpperCase()} · LV.${summary.level} · SCROLL #${sessionCount} ·`}</textPath></text>
+                                        <text className="seal-center" x="36" y="40" textAnchor="middle">S</text>
                                     </svg>
                                 </div>
                                 <div className="signature">

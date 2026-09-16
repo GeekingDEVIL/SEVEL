@@ -88,7 +88,7 @@ export default function SocialHub() {
           .in("id", topUserIds);
         if (profiles) {
           for (const p of profiles) {
-            profileMap[p.id] = p.display_name || "Ascender";
+            profileMap[p.id] = p.display_name || "Challenger";
           }
         }
       }
@@ -96,7 +96,7 @@ export default function SocialHub() {
 
       const top5: LeaderboardEntry[] = entries.slice(0, 5).map((e: any) => ({
         user_id: e.user_id,
-        display_name: profileMap[e.user_id] || "Ascender",
+        display_name: profileMap[e.user_id] || "Challenger",
         total_xp: e.total_xp ?? 0,
         level: computeLevel(e.total_xp ?? 0).level,
       }));

@@ -1,6 +1,6 @@
-# ASCEND Product Bible Reference
+# SEVEL Product Bible Reference
 
-> Source: [ASCEND Product Bible artifact](https://claude.ai/code/artifact/c0c496f3-6133-4ee5-9b69-26cc04a7417a)
+> Source: [SEVEL Product Bible artifact](https://claude.ai/code/artifact/c0c496f3-6133-4ee5-9b69-26cc04a7417a)
 > This file saves tokens — read this instead of re-parsing the artifact.
 > Last synced: 2026-09-02.
 
@@ -8,7 +8,7 @@
 
 ## Product Identity
 
-**ASCEND / TOJI PROTOCOL** — Futuristic Fitness RPG / Adaptive Fitness Operating System.
+**SEVEL / TOJI PROTOCOL** — Futuristic Fitness RPG / Adaptive Fitness Operating System.
 Mobile-first website → PWA → native app (Capacitor in Phase 4-5).
 
 ## Product Loop

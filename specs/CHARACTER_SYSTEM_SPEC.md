@@ -1,4 +1,4 @@
-# ASCEND — Unified Character & Identity System Spec
+# SEVEL — Unified Character & Identity System Spec
 
 > Complete design spec for the merged character/identity/gamification system.
 > Covers: domains, ranking, archetypes, challenges, engagement loops, history, hub dynamics.
@@ -12,7 +12,7 @@
 ### One System, Not Five
 Character sheet, rankings, achievements, titles, and attributes are currently separate features
 with separate UI and separate logic. This spec merges them into a single **Character page** that
-is the definitive view of who you are in ASCEND.
+is the definitive view of who you are in SEVEL.
 
 ### Data-Driven, Not Hardcoded
 Every domain score, archetype assignment, rank progression, and challenge is computed from

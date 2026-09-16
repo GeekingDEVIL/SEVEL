@@ -1,4 +1,4 @@
-const QUEUE_KEY = "ascend_offline_queue";
+const QUEUE_KEY = "sevel_offline_queue";
 
 type QueuedWrite = {
     id: string;

@@ -2,14 +2,14 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ASCEND — Your Training System",
+  title: "SEVEL — Your Training System",
   description: "Adaptive Fitness Operating System",
   manifest: "/manifest.json",
   themeColor: "#0a0a0f",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "ASCEND",
+    title: "SEVEL",
   },
 };
 
@@ -30,7 +30,7 @@ export default function RootLayout({
       <body suppressHydrationWarning>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem("ascend_theme")||"dark";if(t==="auto"){t=window.matchMedia("(prefers-color-scheme:light)").matches?"daylight":"dark"}document.documentElement.setAttribute("data-theme",t)}catch(e){document.documentElement.setAttribute("data-theme","dark")}})();if("serviceWorker"in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("/sw.js").catch(function(){})})}`,
+            __html: `(function(){try{var t=localStorage.getItem("sevel_theme")||"dark";if(t==="auto"){t=window.matchMedia("(prefers-color-scheme:light)").matches?"daylight":"dark"}document.documentElement.setAttribute("data-theme",t)}catch(e){document.documentElement.setAttribute("data-theme","dark")}})();if("serviceWorker"in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("/sw.js").catch(function(){})})}`,
           }}
         />
         {children}

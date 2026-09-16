@@ -1,6 +1,6 @@
 # UI Pattern Library
 
-> ASCEND's reusable component system — Glass Forge design direction with spring-physics animations.
+> SEVEL's reusable component system — Glass Forge design direction with spring-physics animations.
 
 ---
 
