@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Plus, Trash2, GripVertical, Pencil, Database, Play, Moon, Flame, PersonStanding, ChevronDown, ChevronUp, X, Dumbbell, BarChart3, BookOpen, Copy, RefreshCw, ChevronRight } from "lucide-react";
+import { Plus, Trash2, GripVertical, Pencil, Database, Play, Moon, Flame, PersonStanding, ChevronDown, ChevronUp, X, Dumbbell, BarChart3, BookOpen, Copy, RefreshCw, ChevronRight, Swords } from "lucide-react";
 import { useRouter, usePathname } from "next/navigation";
 import { DndContext, closestCenter, PointerSensor, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
@@ -22,6 +22,7 @@ import MusclePickerModal from "../../components/MusclePickerModal";
 import PlanBrowserModal from "../../components/PlanBrowserModal";
 import ExerciseDetailSheet from "../../components/ExerciseDetailSheet";
 import type { WorkoutPlan } from "../../lib/planLibrary";
+import { DISCIPLINES, SESSION_TYPE_LABELS, PHASE1_DISCIPLINES, getSessionTypesForDiscipline, type DisciplineId, type SessionType } from "../../lib/martialArtsEngine";
 
 type LocalExercise = {
     id: string;
@@ -49,7 +50,10 @@ function isDualWeightEx(ex: LocalExercise): boolean {
     return ex.per_side_weight;
 }
 
-type RecurringPlan = { template_id: string | null; is_rest: boolean; template_name: string; exercise_count: number; muscles: string[] };
+type RecurringPlan = {
+    template_id: string | null; is_rest: boolean; template_name: string; exercise_count: number; muscles: string[];
+    session_type: "gym" | "ma"; ma_discipline: DisciplineId | null; ma_session_type: SessionType | null;
+};
 
 const WEEKDAY_LABELS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 const WEEKDAY_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -277,6 +281,10 @@ function DayEditorModal({
     const [detailExercise, setDetailExercise] = useState<LocalExercise | null>(null);
     const weightUnit = useUnits();
 
+    const [planMode, setPlanMode] = useState<"gym" | "ma">(plan?.session_type ?? "gym");
+    const [maDiscipline, setMaDiscipline] = useState<DisciplineId | null>(plan?.ma_discipline ?? null);
+    const [maSessionType, setMaSessionType] = useState<SessionType | null>(plan?.ma_session_type ?? null);
+
     useEffect(() => {
         (async () => {
             if (plan?.template_id) {
@@ -354,7 +362,12 @@ function DayEditorModal({
 
         if (isRest) {
             await supabase.from("recurring_plans").upsert(
-                { user_id: user.id, weekday, template_id: null, is_rest: true, sex: userSex },
+                { user_id: user.id, weekday, template_id: null, is_rest: true, sex: userSex, session_type: "gym", ma_discipline: null, ma_session_type: null },
+                { onConflict: "user_id,weekday,sex" }
+            );
+        } else if (planMode === "ma" && maDiscipline && maSessionType) {
+            await supabase.from("recurring_plans").upsert(
+                { user_id: user.id, weekday, template_id: null, is_rest: false, sex: userSex, session_type: "ma", ma_discipline: maDiscipline, ma_session_type: maSessionType },
                 { onConflict: "user_id,weekday,sex" }
             );
         } else {
@@ -390,7 +403,7 @@ function DayEditorModal({
             }
 
             await supabase.from("recurring_plans").upsert(
-                { user_id: user.id, weekday, template_id: tid, is_rest: false, sex: userSex },
+                { user_id: user.id, weekday, template_id: tid, is_rest: false, sex: userSex, session_type: "gym", ma_discipline: null, ma_session_type: null },
                 { onConflict: "user_id,weekday,sex" }
             );
         }
@@ -433,7 +446,7 @@ function DayEditorModal({
 
     const copyableDays = WEEKDAY_ORDER.filter((wd) => wd !== weekday && allPlans[wd] && !allPlans[wd].is_rest && allPlans[wd].template_id);
 
-    const hasContent = isRest || exercises.length > 0;
+    const hasContent = isRest || exercises.length > 0 || (planMode === "ma" && maDiscipline && maSessionType);
     const totalSets = exercises.reduce((sum, e) => sum + (e.target_sets || 0), 0);
     const existingIds = new Set(exercises.map((e) => e.exercise_id));
 
@@ -446,7 +459,7 @@ function DayEditorModal({
                     <div>
                         <h2 className="text-lg font-bold text-[var(--fg-90)]">{WEEKDAY_FULL[weekday]}</h2>
                         <p className="text-[10px] font-mono text-[var(--fg-35)] mt-0.5">
-                            {isRest ? "Rest day" : plan ? `${exercises.length} exercises · ${totalSets} sets` : "No plan yet"}
+                            {isRest ? "Rest day" : planMode === "ma" && maDiscipline ? `${DISCIPLINES[maDiscipline]?.name} training` : plan ? `${exercises.length} exercises · ${totalSets} sets` : "No plan yet"}
                         </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -468,7 +481,28 @@ function DayEditorModal({
                     ) : !editMode ? (
                         isRest ? (
                             <EmptyState title="REST DAY" subtitle="Recovery is part of the plan." />
-                        ) : exercises.length === 0 ? (
+                        ) : planMode === "ma" && maDiscipline && maSessionType ? (() => {
+                            const d = DISCIPLINES[maDiscipline];
+                            const st = SESSION_TYPE_LABELS[maSessionType];
+                            return (
+                                <div className="space-y-4">
+                                    <div className="rounded-2xl border p-5 text-center" style={{ borderColor: `rgb(${d.colorRgb} / 0.15)`, background: `rgb(${d.colorRgb} / 0.04)` }}>
+                                        <span className="text-3xl block mb-2">{d.emoji}</span>
+                                        <p className="text-base font-bold" style={{ color: `rgb(${d.colorRgb})` }}>{d.name}</p>
+                                        <p className="text-[11px] text-[var(--fg-40)] mt-1">{st.emoji} {st.name}</p>
+                                        <p className="text-[10px] text-[var(--fg-25)] mt-2">{st.description}</p>
+                                        <div className="flex items-center justify-center gap-3 mt-3">
+                                            <span className="text-[9px] font-mono px-2 py-1 rounded-full bg-[var(--fg-04)] text-[var(--fg-35)]">~{st.suggestedMin} min</span>
+                                            <span className="text-[9px] font-mono px-2 py-1 rounded-full bg-[var(--fg-04)] text-[var(--fg-35)]">{st.difficulty}</span>
+                                            <span className="text-[9px] font-mono px-2 py-1 rounded-full bg-[var(--fg-04)] text-[var(--fg-35)]">{st.equipment}</span>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => { window.location.href = "/martial-arts"; }} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border text-xs font-bold transition" style={{ borderColor: `rgb(${d.colorRgb} / 0.3)`, color: `rgb(${d.colorRgb})` }}>
+                                        <Play size={14} /> Start Training
+                                    </button>
+                                </div>
+                            );
+                        })() : exercises.length === 0 ? (
                             <EmptyState title="NO EXERCISES" subtitle="Tap Edit to add exercises." />
                         ) : (
                             <div className="space-y-4">
@@ -486,7 +520,7 @@ function DayEditorModal({
                     ) : (
                         <>
                             {/* Edit Mode Controls */}
-                            <div className="flex items-center gap-2 mb-4">
+                            <div className="flex items-center gap-2 mb-4 flex-wrap">
                                 <button
                                     onClick={() => setIsRest((v) => !v)}
                                     className={`flex items-center gap-1.5 text-[10px] font-mono px-3 py-1.5 rounded-lg border transition ${isRest ? "border-orange-400/50 bg-orange-400/15 text-orange-200" : "border-emerald-400/50 bg-emerald-400/15 text-emerald-200"}`}
@@ -498,7 +532,7 @@ function DayEditorModal({
                                         <Trash2 size={11} /> CLEAR
                                     </button>
                                 )}
-                                {copyableDays.length > 0 && (
+                                {copyableDays.length > 0 && planMode === "gym" && (
                                     <button
                                         onClick={() => setShowCopyPicker((v) => !v)}
                                         className="flex items-center gap-1.5 text-[10px] font-mono px-2.5 py-1.5 rounded-lg border border-[rgb(var(--accent-rgb)/0.3)] bg-[rgb(var(--accent-rgb)/0.08)] text-[rgb(var(--accent-light-rgb)/0.7)] hover:text-[rgb(var(--accent-light-rgb))] transition ml-auto"
@@ -507,6 +541,18 @@ function DayEditorModal({
                                     </button>
                                 )}
                             </div>
+
+                            {/* Gym / MA toggle */}
+                            {!isRest && (
+                                <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-[var(--fg-03)] border border-[var(--fg-06)] mb-4">
+                                    <button onClick={() => setPlanMode("gym")} className={`py-2 rounded-lg text-[10px] font-bold tracking-wide flex items-center justify-center gap-1.5 transition ${planMode === "gym" ? "bg-[rgb(var(--accent-rgb)/0.15)] text-[rgb(var(--accent-light-rgb))] border border-[rgb(var(--accent-rgb)/0.3)]" : "text-[var(--fg-40)] hover:text-[var(--fg-60)] border border-transparent"}`}>
+                                        <Dumbbell size={12} /> GYM
+                                    </button>
+                                    <button onClick={() => setPlanMode("ma")} className={`py-2 rounded-lg text-[10px] font-bold tracking-wide flex items-center justify-center gap-1.5 transition ${planMode === "ma" ? "bg-[rgb(var(--accent-rgb)/0.15)] text-[rgb(var(--accent-light-rgb))] border border-[rgb(var(--accent-rgb)/0.3)]" : "text-[var(--fg-40)] hover:text-[var(--fg-60)] border border-transparent"}`}>
+                                        <Swords size={12} /> MARTIAL ARTS
+                                    </button>
+                                </div>
+                            )}
 
                             {showCopyPicker && (
                                 <div className="mb-4 p-3 rounded-xl border border-[rgb(var(--accent-rgb)/0.2)] bg-[rgb(var(--accent-rgb)/0.04)]">
@@ -531,6 +577,62 @@ function DayEditorModal({
 
                             {isRest ? (
                                 <EmptyState title="REST DAY" subtitle="Every future occurrence stays a rest day." />
+                            ) : planMode === "ma" ? (
+                                <div className="space-y-4">
+                                    <p className="text-[10px] font-mono tracking-widest text-[var(--fg-40)]">CHOOSE DISCIPLINE</p>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {PHASE1_DISCIPLINES.map((did) => {
+                                            const d = DISCIPLINES[did];
+                                            const selected = maDiscipline === did;
+                                            return (
+                                                <button key={did} onClick={() => { setMaDiscipline(did); setMaSessionType(null); }}
+                                                    className={`rounded-xl border p-3 text-left transition active:scale-[0.97] ${selected ? "ring-1" : "hover:border-[var(--fg-15)]"}`}
+                                                    style={selected ? { borderColor: `rgb(${d.colorRgb} / 0.4)`, background: `rgb(${d.colorRgb} / 0.06)`, boxShadow: `0 0 12px -4px rgb(${d.colorRgb} / 0.3)` } : { borderColor: "rgb(var(--fg-06))" }}
+                                                >
+                                                    <span className="text-lg">{d.emoji}</span>
+                                                    <p className="text-xs font-bold mt-1" style={selected ? { color: `rgb(${d.colorRgb})` } : { color: "var(--fg-70)" }}>{d.name}</p>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+
+                                    {maDiscipline && (() => {
+                                        const d = DISCIPLINES[maDiscipline];
+                                        const types = getSessionTypesForDiscipline(maDiscipline);
+                                        return (
+                                            <>
+                                                <p className="text-[10px] font-mono tracking-widest text-[var(--fg-40)] mt-2">SESSION TYPE</p>
+                                                <div className="space-y-1.5">
+                                                    {types.map((st) => {
+                                                        const info = SESSION_TYPE_LABELS[st];
+                                                        const selected = maSessionType === st;
+                                                        return (
+                                                            <button key={st} onClick={() => setMaSessionType(st)}
+                                                                className={`w-full text-left rounded-xl border p-3 flex items-center gap-3 transition active:scale-[0.98] ${selected ? "ring-1" : "hover:border-[var(--fg-15)]"}`}
+                                                                style={selected ? { borderColor: `rgb(${d.colorRgb} / 0.4)`, background: `rgb(${d.colorRgb} / 0.06)`, boxShadow: `0 0 12px -4px rgb(${d.colorRgb} / 0.3)` } : { borderColor: "rgb(var(--fg-06))" }}
+                                                            >
+                                                                <span className="text-base">{info.emoji}</span>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <p className="text-xs font-bold" style={selected ? { color: `rgb(${d.colorRgb})` } : { color: "var(--fg-70)" }}>{info.name}</p>
+                                                                    <p className="text-[10px] text-[var(--fg-30)] mt-0.5 truncate">{info.description}</p>
+                                                                </div>
+                                                                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-full bg-[var(--fg-04)] text-[var(--fg-30)]">~{info.suggestedMin}m</span>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </>
+                                        );
+                                    })()}
+
+                                    {maDiscipline && maSessionType && (
+                                        <div className="rounded-xl border p-4 text-center" style={{ borderColor: `rgb(${DISCIPLINES[maDiscipline].colorRgb} / 0.2)`, background: `rgb(${DISCIPLINES[maDiscipline].colorRgb} / 0.04)` }}>
+                                            <p className="text-lg">{DISCIPLINES[maDiscipline].emoji}</p>
+                                            <p className="text-sm font-bold mt-1" style={{ color: `rgb(${DISCIPLINES[maDiscipline].colorRgb})` }}>{DISCIPLINES[maDiscipline].name} — {SESSION_TYPE_LABELS[maSessionType].name}</p>
+                                            <p className="text-[10px] text-[var(--fg-35)] mt-1">This will repeat every {WEEKDAY_FULL[weekday]}</p>
+                                        </div>
+                                    )}
+                                </div>
                             ) : (
                                 <>
                                     <input
@@ -659,7 +761,7 @@ export default function SchedulePage() {
         if (!user) return;
         const { data: plans } = await supabase
             .from("recurring_plans")
-            .select("weekday, template_id, is_rest, workout_templates(name)")
+            .select("weekday, template_id, is_rest, session_type, ma_discipline, ma_session_type, workout_templates(name)")
             .eq("user_id", user.id)
             .eq("sex", userSex ?? "male");
 
@@ -688,6 +790,9 @@ export default function SchedulePage() {
                 template_name: p.workout_templates?.name ?? "",
                 exercise_count: p.template_id ? (countByTemplate[p.template_id] ?? 0) : 0,
                 muscles: p.template_id && musclesByTemplate[p.template_id] ? Array.from(musclesByTemplate[p.template_id]) : [],
+                session_type: p.session_type === "ma" ? "ma" : "gym",
+                ma_discipline: p.ma_discipline as DisciplineId | null,
+                ma_session_type: p.ma_session_type as SessionType | null,
             };
         });
         setRecurringPlans(map);
@@ -980,21 +1085,29 @@ export default function SchedulePage() {
                                         className={`w-full text-left rounded-xl border p-3.5 transition active:scale-[0.98] group ${
                                             plan?.is_rest
                                                 ? "border-emerald-400/15 bg-emerald-400/[0.03] hover:border-emerald-400/30"
-                                                : plan
-                                                    ? "border-[rgb(var(--accent-rgb)/0.12)] bg-[var(--fg-02)] hover:border-[rgb(var(--accent-rgb)/0.35)]"
-                                                    : "border-[var(--fg-06)] bg-[var(--fg-01)] hover:border-[var(--fg-15)]"
+                                                : plan?.session_type === "ma" && plan.ma_discipline
+                                                    ? `border-[rgb(${DISCIPLINES[plan.ma_discipline]?.colorRgb ?? "var(--accent-rgb)"}/0.15)] bg-[rgb(${DISCIPLINES[plan.ma_discipline]?.colorRgb ?? "var(--accent-rgb)"}/0.03)] hover:border-[rgb(${DISCIPLINES[plan.ma_discipline]?.colorRgb ?? "var(--accent-rgb)"}/0.35)]`
+                                                    : plan
+                                                        ? "border-[rgb(var(--accent-rgb)/0.12)] bg-[var(--fg-02)] hover:border-[rgb(var(--accent-rgb)/0.35)]"
+                                                        : "border-[var(--fg-06)] bg-[var(--fg-01)] hover:border-[var(--fg-15)]"
                                         } ${isToday ? "ring-1 ring-[rgb(var(--accent-rgb)/0.3)]" : ""}`}
                                     >
                                         <div className="flex items-center gap-3">
                                             {/* Day indicator */}
-                                            <div className={`w-11 h-11 rounded-xl flex flex-col items-center justify-center shrink-0 ${
-                                                plan?.is_rest ? "bg-emerald-400/10" : plan ? "bg-[rgb(var(--accent-rgb)/0.1)]" : "bg-[var(--fg-03)]"
-                                            }`}>
-                                                <span className={`text-[9px] font-mono leading-none ${plan?.is_rest ? "text-emerald-300/60" : plan ? "text-[rgb(var(--accent-light-rgb)/0.6)]" : "text-[var(--fg-25)]"}`}>
-                                                    {WEEKDAY_LABELS[wd].slice(0, 3)}
-                                                </span>
-                                                {isToday && <span className="w-1 h-1 rounded-full bg-[rgb(var(--accent-light-rgb))] mt-0.5" />}
-                                            </div>
+                                            {(() => {
+                                                const isMa = plan?.session_type === "ma" && plan.ma_discipline;
+                                                const maColor = isMa ? DISCIPLINES[plan.ma_discipline!]?.colorRgb : null;
+                                                return (
+                                                    <div className={`w-11 h-11 rounded-xl flex flex-col items-center justify-center shrink-0 ${
+                                                        plan?.is_rest ? "bg-emerald-400/10" : isMa && maColor ? "" : plan ? "bg-[rgb(var(--accent-rgb)/0.1)]" : "bg-[var(--fg-03)]"
+                                                    }`} style={isMa && maColor ? { background: `rgb(${maColor} / 0.1)` } : undefined}>
+                                                        <span className={`text-[9px] font-mono leading-none ${plan?.is_rest ? "text-emerald-300/60" : plan ? "text-[rgb(var(--accent-light-rgb)/0.6)]" : "text-[var(--fg-25)]"}`} style={isMa && maColor ? { color: `rgb(${maColor} / 0.6)` } : undefined}>
+                                                            {WEEKDAY_LABELS[wd].slice(0, 3)}
+                                                        </span>
+                                                        {isToday && <span className="w-1 h-1 rounded-full bg-[rgb(var(--accent-light-rgb))] mt-0.5" />}
+                                                    </div>
+                                                );
+                                            })()}
 
                                             {/* Content */}
                                             <div className="flex-1 min-w-0">
@@ -1004,7 +1117,20 @@ export default function SchedulePage() {
                                                             <p className="text-sm font-medium text-emerald-300/80">Rest Day</p>
                                                             <p className="text-[10px] font-mono text-emerald-300/30">Recovery</p>
                                                         </>
-                                                    ) : (
+                                                    ) : plan.session_type === "ma" && plan.ma_discipline ? (() => {
+                                                        const d = DISCIPLINES[plan.ma_discipline!];
+                                                        const st = plan.ma_session_type ? SESSION_TYPE_LABELS[plan.ma_session_type] : null;
+                                                        return (
+                                                            <>
+                                                                <p className="text-sm font-medium truncate" style={{ color: `rgb(${d?.colorRgb ?? "var(--accent-rgb)"})` }}>
+                                                                    {d?.emoji} {d?.name ?? plan.ma_discipline}
+                                                                </p>
+                                                                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                                                    {st && <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-full border" style={{ borderColor: `rgb(${d?.colorRgb}/0.2)`, background: `rgb(${d?.colorRgb}/0.08)`, color: `rgb(${d?.colorRgb}/0.7)` }}>{st.emoji} {st.name}</span>}
+                                                                </div>
+                                                            </>
+                                                        );
+                                                    })() : (
                                                         <>
                                                             <p className="text-sm font-medium text-[var(--fg-85)] truncate">{plan.template_name || "Workout"}</p>
                                                             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
@@ -1150,17 +1276,27 @@ export default function SchedulePage() {
                                 <div>
                                     <p className="text-[10px] font-mono tracking-widest text-[rgb(var(--accent-light-rgb)/0.6)]">{dayLabel.toUpperCase()}</p>
                                     <p className="text-lg font-bold text-[var(--fg-90)] mt-0.5">
-                                        {selectedPlan?.is_rest ? "Rest / Recovery" : selectedPlan?.template_name || "No Plan"}
+                                        {selectedPlan?.is_rest ? "Rest / Recovery" : selectedPlan?.session_type === "ma" && selectedPlan.ma_discipline ? `${DISCIPLINES[selectedPlan.ma_discipline]?.emoji ?? ""} ${DISCIPLINES[selectedPlan.ma_discipline]?.name ?? selectedPlan.ma_discipline}` : selectedPlan?.template_name || "No Plan"}
                                     </p>
                                 </div>
-                                {selectedDate === today && selectedPlan && !selectedPlan.is_rest && viewExercises.length > 0 && (
-                                    <button
-                                        onClick={() => router.push("/workout")}
-                                        className="flex items-center gap-1.5 text-[10px] font-mono px-4 py-2 rounded-xl bg-[rgb(var(--accent-rgb))] text-black font-bold hover:bg-[rgb(var(--accent-light-rgb))] transition"
-                                        style={{ boxShadow: "0 0 20px -4px rgb(var(--accent-rgb) / 0.5)" }}
-                                    >
-                                        <Play size={11} fill="black" /> START WORKOUT
-                                    </button>
+                                {selectedDate === today && selectedPlan && !selectedPlan.is_rest && (
+                                    selectedPlan.session_type === "ma" ? (
+                                        <button
+                                            onClick={() => router.push("/martial-arts")}
+                                            className="flex items-center gap-1.5 text-[10px] font-mono px-4 py-2 rounded-xl font-bold transition"
+                                            style={selectedPlan.ma_discipline ? { background: `rgb(${DISCIPLINES[selectedPlan.ma_discipline]?.colorRgb} / 0.9)`, color: "#000", boxShadow: `0 0 20px -4px rgb(${DISCIPLINES[selectedPlan.ma_discipline]?.colorRgb} / 0.5)` } : { background: "rgb(var(--accent-rgb))", color: "#000" }}
+                                        >
+                                            <Play size={11} fill="black" /> START TRAINING
+                                        </button>
+                                    ) : viewExercises.length > 0 ? (
+                                        <button
+                                            onClick={() => router.push("/workout")}
+                                            className="flex items-center gap-1.5 text-[10px] font-mono px-4 py-2 rounded-xl bg-[rgb(var(--accent-rgb))] text-black font-bold hover:bg-[rgb(var(--accent-light-rgb))] transition"
+                                            style={{ boxShadow: "0 0 20px -4px rgb(var(--accent-rgb) / 0.5)" }}
+                                        >
+                                            <Play size={11} fill="black" /> START WORKOUT
+                                        </button>
+                                    ) : null
                                 )}
                             </div>
 
@@ -1170,6 +1306,55 @@ export default function SchedulePage() {
                                 <EmptyState title="NO PLAN" subtitle="Set a plan in My Week to fill this day." />
                             ) : selectedPlan.is_rest ? (
                                 <EmptyState title="REST DAY" subtitle="Recovery is part of the plan too." />
+                            ) : selectedPlan.session_type === "ma" && selectedPlan.ma_discipline ? (
+                                <>
+                                    {(() => {
+                                        const disc = DISCIPLINES[selectedPlan.ma_discipline];
+                                        const stLabel = selectedPlan.ma_session_type ? SESSION_TYPE_LABELS[selectedPlan.ma_session_type] : null;
+                                        return disc ? (
+                                            <div className="space-y-4">
+                                                <div className="rounded-xl border p-4" style={{ borderColor: `rgb(${disc.colorRgb} / 0.2)`, background: `rgb(${disc.colorRgb} / 0.05)` }}>
+                                                    <div className="flex items-center gap-3 mb-3">
+                                                        <span className="text-3xl">{disc.emoji}</span>
+                                                        <div>
+                                                            <p className="font-bold text-base" style={{ color: `rgb(${disc.colorRgb})` }}>{disc.name}</p>
+                                                            <p className="text-[10px] font-mono text-[var(--fg-40)]">{disc.category.toUpperCase()}</p>
+                                                        </div>
+                                                    </div>
+                                                    {stLabel && (
+                                                        <div className="mt-3 pt-3 border-t" style={{ borderColor: `rgb(${disc.colorRgb} / 0.15)` }}>
+                                                            <p className="text-[10px] font-mono tracking-widest text-[var(--fg-40)] mb-1">SESSION TYPE</p>
+                                                            <p className="font-bold text-sm flex items-center gap-2">
+                                                                <span>{stLabel.emoji}</span> {stLabel.name}
+                                                            </p>
+                                                            <p className="text-[11px] text-[var(--fg-40)] mt-1">{stLabel.description}</p>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="grid grid-cols-3 gap-2">
+                                                    <div className="glass-card p-2.5 text-center">
+                                                        <p className="text-[8px] font-mono text-[var(--fg-30)]">DIFFICULTY</p>
+                                                        <p className="text-sm font-bold capitalize">{stLabel?.difficulty ?? "—"}</p>
+                                                    </div>
+                                                    <div className="glass-card p-2.5 text-center">
+                                                        <p className="text-[8px] font-mono text-[var(--fg-30)]">SUGGESTED</p>
+                                                        <p className="text-sm font-bold">{stLabel?.suggestedMin ?? "—"}m</p>
+                                                    </div>
+                                                    <div className="glass-card p-2.5 text-center">
+                                                        <p className="text-[8px] font-mono text-[var(--fg-30)]">HOW IT WORKS</p>
+                                                        <p className="text-[9px] text-[var(--fg-50)] leading-tight mt-0.5">{stLabel?.howItWorks ?? "—"}</p>
+                                                    </div>
+                                                </div>
+                                                {stLabel?.equipment && (
+                                                    <div className="glass-card p-3">
+                                                        <p className="text-[8px] font-mono text-[var(--fg-30)] mb-1">EQUIPMENT</p>
+                                                        <p className="text-[11px] text-[var(--fg-60)]">{stLabel.equipment}</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ) : null;
+                                    })()}
+                                </>
                             ) : (
                                 <>
                                     <div className="grid grid-cols-3 gap-2 mb-4">
