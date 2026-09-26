@@ -935,7 +935,7 @@ export default function SchedulePage() {
     const [showWeighIn, setShowWeighIn] = useState(false);
     const [clockTime, setClockTime] = useState(() => new Date());
     const [heroScrolled, setHeroScrolled] = useState(false);
-    const [expandedWeekday, setExpandedWeekday] = useState<string | null>(null);
+    const [expandedWeekday, setExpandedWeekday] = useState<number | null>(null);
     const [statsAnimated, setStatsAnimated] = useState(false);
     const [heroMounted, setHeroMounted] = useState(false);
     const [lastSessionInfo, setLastSessionInfo] = useState<{ title: string; daysAgo: number; volume: number } | null>(null);
@@ -1090,7 +1090,7 @@ export default function SchedulePage() {
             const last = w.lastPerformance[ex.exercise_id];
             if (last && last.weight != null && last.weight > 0) {
                 const trend = w.overloadHints[ex.exercise_id];
-                if (trend && trend.suggestion === "increase") ids.add(ex.id);
+                if (trend && trend.type === "weight_up") ids.add(ex.id);
             }
         });
         return ids;
@@ -1989,53 +1989,11 @@ export default function SchedulePage() {
                 {gymSessionReady && w.status !== "active" && (
                     <div key={`hero-${w.status}`} ref={heroRef} className="rounded-2xl border overflow-hidden relative schedule-grain" style={{
                         background: w.status === "not_started" ? dayPhaseGradient : "linear-gradient(135deg, rgb(var(--fg-03)) 0%, rgb(var(--fg-02)) 100%)",
-                        animation: w.status === "not_started" ? "stateFadeIn 0.4s ease-out both, hero-breathe 4s ease-in-out 0.4s infinite" : w.status === "active" ? "stateFadeIn 0.4s ease-out both, active-pulse 3s ease-in-out 0.4s infinite" : "stateFadeIn 0.4s ease-out both",
+                        animation: w.status === "not_started" ? "stateFadeIn 0.4s ease-out both, hero-breathe 4s ease-in-out 0.4s infinite" : "stateFadeIn 0.4s ease-out both",
                         backdropFilter: "blur(20px)",
                         WebkitBackdropFilter: "blur(20px)",
                         transform: `translateY(${Math.min(scrollY * 0.08, 30)}px) scale(${1 - Math.min(scrollY * 0.0003, 0.03)})`,
                     }}>
-                        {/* Active session: progress ring + title */}
-                        {w.status === "active" && (
-                            <div className="flex items-start gap-4 p-5 pb-4">
-                                <div className="relative shrink-0">
-                                    <svg width="72" height="72" viewBox="0 0 72 72" className="-rotate-90">
-                                        <circle cx="36" cy="36" r={ringR} fill="none" stroke="rgb(var(--fg-06))" strokeWidth="4" />
-                                        <circle cx="36" cy="36" r={ringR} fill="none" stroke="rgb(var(--accent-rgb))" strokeWidth="4" strokeLinecap="round"
-                                            strokeDasharray={ringC} strokeDashoffset={ringC * (1 - progressPct)} className="transition-all duration-500" />
-                                    </svg>
-                                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                                        <span className="text-lg font-bold font-mono text-[var(--fg-90)]">{w.completedCount}</span>
-                                        <span className="text-[7px] font-mono text-[var(--fg-25)]">/ {w.totalPlanned}</span>
-                                    </div>
-                                </div>
-                                <div className="flex-1 min-w-0 pt-0.5">
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <p className="text-[9px] font-mono tracking-widest text-[var(--fg-25)]">{todayName}</p>
-                                        <span className="text-[7px] font-mono px-1.5 py-px rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 animate-pulse">LIVE</span>
-                                    </div>
-                                    <h1 className="text-lg font-bold text-[var(--fg-90)] leading-snug">
-                                        {w.dayTitle || todayPlan?.template_name || "Today"}
-                                    </h1>
-                                    {todayMuscles.length > 0 && (
-                                        <div className="flex flex-wrap gap-1 mt-2">
-                                            {todayMuscles.map((m) => (
-                                                <span key={m} className="text-[8px] font-mono font-medium px-2 py-0.5 rounded-full border" style={{
-                                                    color: `rgb(${MUSCLE_COLORS[m] || MUSCLE_COLORS.Other})`,
-                                                    borderColor: `rgb(${MUSCLE_COLORS[m] || MUSCLE_COLORS.Other} / 0.2)`,
-                                                    background: `rgb(${MUSCLE_COLORS[m] || MUSCLE_COLORS.Other} / 0.08)`,
-                                                }}>{m}</span>
-                                            ))}
-                                        </div>
-                                    )}
-                                    <div className="flex items-center gap-3 mt-2.5 text-[10px] font-mono">
-                                        <span className="text-[var(--fg-40)]"><Clock size={10} className="inline -mt-px mr-0.5" />{formatClock(w.elapsed)}</span>
-                                        <span className="text-[var(--fg-40)]">{Math.round(kgToUnitW(w.sessionVolume, w.weightUnit)).toLocaleString()} {w.weightUnit}</span>
-                                        {lastDelta > 0 && <span className="text-emerald-400/70">+{Math.round(kgToUnitW(lastDelta, w.weightUnit))}</span>}
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
                         {/* Pre-session: clean title + Begin Session */}
                         {w.status === "not_started" && (
                             <div className="p-5 relative z-[1]">
@@ -3828,7 +3786,7 @@ export default function SchedulePage() {
             {w.showAddModal && <AddExerciseModal onAdd={w.handleAddExercise} onClose={() => w.setShowAddModal(false)} existingIds={new Set(w.exercisesList.map((e) => e.exercise_id))} />}
             {detailExercise && (
                 <ExerciseDetailSheet exerciseId={detailExercise.exercise_id} exerciseName={detailExercise.name} equipment={detailExercise.equipment} bodySegment={detailExercise.body_segment} weightUnit={w.weightUnit} userSex={w.userSex} imageUrl={detailExercise.image_url} onClose={() => setDetailExercise(null)}
-                    currentSetVolumes={w.status === "active" ? (w.logs[detailExercise.id] ?? []).filter(s => s.completed && !s.is_warmup && !s.isDrop && !s.isRestPause && s.weight && s.reps).map(s => Number(s.weight) * Number(s.reps)) : undefined}
+                    currentSetVolumes={w.status === "active" ? (w.logs[detailExercise.id] ?? []).filter(s => s.completed && !s.is_warmup && s.set_type !== "drop" && s.set_type !== "rest_pause" && s.weight && s.reps).map(s => Number(s.weight) * Number(s.reps)) : undefined}
                 />
             )}
             {formCheckExercise && <LazyFormCheck exerciseName={formCheckExercise} onClose={() => setFormCheckExercise(null)} />}

@@ -633,8 +633,8 @@ export default function WorkoutCompleteCard({
                                                 .sort((a, b) => b[1] - a[1])
                                             : (musclesProp ?? [])
                                                 .filter(m => m.muscle !== "Cardio" && m.muscle !== "Other")
-                                                .sort((a, b) => b.intensity - a.intensity)
-                                                .map(m => [m.muscle, m.intensity / 10] as [string, number])
+                                                .sort((a, b) => (b.intensity ?? 0) - (a.intensity ?? 0))
+                                                .map(m => [m.muscle, (m.intensity ?? 0) / 10] as [string, number])
                                         ).map(([seg, intensity]) => (
                                                 <span key={seg} className={`muscle-tag ${intensity > 0.7 ? "primary" : "secondary"}`}>{seg}</span>
                                             ))}

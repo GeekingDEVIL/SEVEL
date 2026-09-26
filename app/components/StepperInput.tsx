@@ -35,7 +35,7 @@ export default function StepperInput({
     const [editing, setEditing] = useState(false);
     const [editText, setEditText] = useState("");
     const inputRef = useRef<HTMLInputElement>(null);
-    const longPressTimer = useRef<ReturnType<typeof setInterval>>();
+    const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const longPressActive = useRef(false);
 
     const snap = useCallback((v: number) => {
@@ -72,7 +72,7 @@ export default function StepperInput({
     const stopLongPress = useCallback(() => {
         if (longPressTimer.current) {
             clearTimeout(longPressTimer.current);
-            longPressTimer.current = undefined;
+            longPressTimer.current = null;
         }
     }, []);
 
