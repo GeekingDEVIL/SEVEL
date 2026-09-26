@@ -15,6 +15,7 @@ type Props = {
     userSex: string;
     imageUrl?: string | null;
     onClose: () => void;
+    currentSetVolumes?: number[];
 };
 
 type WeekPoint = { week: string; e1rm: number };
@@ -84,7 +85,7 @@ function Sparkline({ data, width = 260, height = 80, unit }: { data: WeekPoint[]
     );
 }
 
-export default function ExerciseDetailSheet({ exerciseId, exerciseName, equipment, bodySegment, weightUnit, userSex, imageUrl, onClose }: Props) {
+export default function ExerciseDetailSheet({ exerciseId, exerciseName, equipment, bodySegment, weightUnit, userSex, imageUrl, onClose, currentSetVolumes }: Props) {
     const { user } = useAuth();
     const [details, setDetails] = useState<{ instructions: string | null; primary_muscle: string; secondary_muscles: string[] } | null>(null);
     const [stats, setStats] = useState<{ pr: number | null; avgWeight: number | null; totalSessions: number; e1rm: number | null } | null>(null);
@@ -310,6 +311,60 @@ export default function ExerciseDetailSheet({ exerciseId, exerciseName, equipmen
                                             <Sparkline data={trend} unit={weightUnit} />
                                         </div>
                                     )}
+
+                                    {/* Set Volume (current session) */}
+                                    {currentSetVolumes && currentSetVolumes.length >= 2 && (() => {
+                                        const vols = currentSetVolumes;
+                                        const minV = Math.min(...vols);
+                                        const maxV = Math.max(...vols);
+                                        const range = maxV - minV || 1;
+                                        const svgW = 260;
+                                        const svgH = 70;
+                                        const pad = 24;
+                                        const plotW = svgW - pad * 2;
+                                        const plotH = svgH - pad * 2;
+                                        const coords = vols.map((v, i) => ({
+                                            x: pad + (i / (vols.length - 1)) * plotW,
+                                            y: pad + plotH - ((v - minV) / range) * plotH,
+                                            val: v,
+                                        }));
+                                        const pathD = coords.map((c, i) => `${i === 0 ? "M" : "L"}${c.x},${c.y}`).join(" ");
+                                        const areaD = `${pathD} L${coords[coords.length - 1].x},${pad + plotH} L${coords[0].x},${pad + plotH} Z`;
+                                        const drop = vols[vols.length - 1] < vols[0] * 0.9;
+                                        const pctChange = Math.round(((vols[vols.length - 1] - vols[0]) / vols[0]) * 100);
+                                        const color = drop ? "rgb(239 68 68" : "rgb(var(--accent-rgb)";
+                                        return (
+                                            <div className="glass-card p-3 mb-4">
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <Zap size={11} className={drop ? "text-red-400/50" : "text-[rgb(var(--accent-rgb)/0.5)]"} />
+                                                        <span className="text-[9px] font-mono tracking-widest text-[var(--fg-30)]">SET VOLUME</span>
+                                                    </div>
+                                                    <span className={`text-[9px] font-mono font-medium ${drop ? "text-red-400/60" : "text-[var(--fg-25)]"}`}>
+                                                        {drop ? `${pctChange}%` : pctChange > 0 ? `+${pctChange}%` : "steady"}
+                                                    </span>
+                                                </div>
+                                                <svg width="100%" height={svgH} viewBox={`0 0 ${svgW} ${svgH}`} preserveAspectRatio="xMidYMid meet">
+                                                    <defs>
+                                                        <linearGradient id="setVolGrad" x1="0" y1="0" x2="0" y2="1">
+                                                            <stop offset="0%" stopColor={`${color})`} stopOpacity="0.15" />
+                                                            <stop offset="100%" stopColor={`${color})`} stopOpacity="0" />
+                                                        </linearGradient>
+                                                    </defs>
+                                                    <polygon points={`${coords[0].x},${pad + plotH} ${coords.map(c => `${c.x},${c.y}`).join(" ")} ${coords[coords.length - 1].x},${pad + plotH}`} fill="url(#setVolGrad)" />
+                                                    <path d={pathD} fill="none" stroke={`${color} / 0.6)`} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                                    {coords.map((c, i) => (
+                                                        <g key={i}>
+                                                            <circle cx={c.x} cy={c.y} r={i === coords.length - 1 ? 3.5 : 2} fill={`${color} / ${i === coords.length - 1 ? "0.8" : "0.4"})`} />
+                                                            <text x={c.x} y={c.y - 6} textAnchor="middle" fill="var(--fg-30)" fontSize="7" fontFamily="monospace">{Math.round(c.val)}</text>
+                                                            <text x={c.x} y={pad + plotH + 10} textAnchor="middle" fill="var(--fg-15)" fontSize="6" fontFamily="monospace">S{i + 1}</text>
+                                                        </g>
+                                                    ))}
+                                                </svg>
+                                                <p className="text-[8px] font-mono text-[var(--fg-20)] mt-0.5">Weight × reps per set this session</p>
+                                            </div>
+                                        );
+                                    })()}
 
                                     {/* Muscles */}
                                     {details && (

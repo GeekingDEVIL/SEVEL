@@ -16,9 +16,12 @@ import { fetchCycleTrainingData, assessExerciseRisk, getCycleAdjustedWeight, typ
 import { findSubstitutions, type Substitution } from "./substitutionEngine";
 import { useEquipment } from "./useEquipment";
 import { autoCompleteHabits } from "./habitAutoComplete";
-import { enqueue, setupOnlineListener, flushQueue } from "./offlineQueue";
+import { enqueue, setupOnlineListener, flushQueue, removeFromQueue } from "./offlineQueue";
 
 /* ─── TYPES ─── */
+export type TrackingMode = "weight_reps" | "rounds_duration" | "duration_only" | "distance_time";
+export type Discipline = "strength" | "boxing" | "muay_thai" | "kickboxing" | "bjj" | "wrestling" | "judo" | "mma" | "karate" | "taekwondo" | "kung_fu" | "krav_maga" | "capoeira" | "aikido" | "calisthenics" | "cardio" | "mobility" | "other";
+
 export type WorkoutExercise = {
     id: string;
     exercise_id: string;
@@ -35,6 +38,8 @@ export type WorkoutExercise = {
     isBodyweight: boolean;
     is_unilateral: boolean;
     per_side_weight: boolean;
+    tracking_mode: TrackingMode;
+    discipline: Discipline;
     superset_group?: number | null;
     image_url?: string | null;
 };
@@ -78,6 +83,7 @@ export type SessionSummary = {
 
 export type TodaySession = {
     id: string;
+    title: string;
     duration: number;
     sets: number;
     volume: number;
@@ -154,6 +160,7 @@ export function useWorkoutSession() {
     const [logs, setLogs] = useState<Record<string, SetEntry[]>>({});
     const [lastPerformance, setLastPerformance] = useState<Record<string, { weight: number | null; reps: number | null }>>({});
     const [lastSets, setLastSets] = useState<Record<string, { weight: number | null; reps: number | null }[]>>({});
+    const [predictedSets, setPredictedSets] = useState<Record<string, { weight: number; reps: number }[]>>({});
     const [overloadHints, setOverloadHints] = useState<Record<string, OverloadSuggestion>>({});
     const [sessionId, setSessionId] = useState<string | null>(null);
     const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -170,6 +177,7 @@ export function useWorkoutSession() {
     const [weightLogged, setWeightLogged] = useState(false);
     const [confirmedExercises, setConfirmedExercises] = useState<Set<string>>(new Set());
     const [prCount, setPrCount] = useState(0);
+    const [prExerciseIds, setPrExerciseIds] = useState<Set<string>>(new Set());
     const [summary, setSummary] = useState<SessionSummary | null>(null);
     const [todaySessions, setTodaySessions] = useState<TodaySession[]>([]);
     const [sharing, setSharing] = useState(false);
@@ -195,16 +203,28 @@ export function useWorkoutSession() {
     const [energyForecast, setEnergyForecast] = useState<EnergyForecast[]>([]);
     const [exerciseRisks, setExerciseRisks] = useState<Record<string, ExerciseRisk>>({});
     const [substitutions, setSubstitutions] = useState<Record<string, Substitution[]>>({});
-    const [sessionRating, setSessionRating] = useState<number | null>(null);
+    const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
     /* ── DERIVED ── */
-    const totalPlanned = exercisesList.reduce((sum, e) => sum + e.target_sets, 0);
+    const totalPlanned = exercisesList.reduce((sum, e) => sum + (e.isCardio ? 1 : e.target_sets), 0);
     const completedCount = Object.values(logs).flat().filter((s) => s.completed && !s.is_warmup).length;
     const sessionVolume = Object.entries(logs).reduce((total, [exId, sets]) => {
         const ex = exercisesList.find((e) => e.id === exId);
         const mult = ex && isDualWeight(ex) ? 2 : 1;
         return total + sets.filter((s) => s.completed && !s.is_warmup).reduce((sum, s) => sum + (Number(s.weight) || 0) * (Number(s.reps) || 0) * mult, 0);
     }, 0);
+
+    useEffect(() => {
+        if (status !== "active") return;
+        const ex = exercisesList.find(e => e.id === expandedId);
+        if (ex) localStorage.setItem("sevel_current_exercise", ex.name);
+        localStorage.setItem("sevel_set_progress", `${completedCount}/${totalPlanned}`);
+    }, [expandedId, status, exercisesList, completedCount, totalPlanned]);
+
+    useEffect(() => {
+        if (status !== "active") { localStorage.removeItem("sevel_resting"); return; }
+        localStorage.setItem("sevel_resting", restRemaining !== null ? "true" : "false");
+    }, [status, restRemaining]);
 
     /* ── LOAD ── */
     const activeSessionRef = useRef<string | null>(null);
@@ -222,10 +242,11 @@ export function useWorkoutSession() {
             const weekday = new Date().getDay();
             const { data: plans } = await supabase
                 .from("recurring_plans")
-                .select("template_id, is_rest, workout_templates(name)")
+                .select("template_id, is_rest, session_type, workout_templates(name)")
                 .eq("user_id", user.id)
                 .eq("weekday", weekday)
                 .eq("sex", sex)
+                .or("session_type.eq.gym,session_type.is.null")
                 .order("created_at", { ascending: false })
                 .limit(1);
             const plan = plans?.[0] ?? null;
@@ -241,8 +262,13 @@ export function useWorkoutSession() {
             let { data: day } = await supabase.from("scheduled_days").select("id").eq("user_id", user.id).eq("date", today).maybeSingle();
             const dayExisted = !!day;
             if (!day) {
-                const { data: created } = await supabase.from("scheduled_days").insert({ user_id: user.id, date: today, title: planTitle, is_rest: false }).select("id").single();
-                day = created;
+                const { data: created, error: insertErr } = await supabase.from("scheduled_days").insert({ user_id: user.id, date: today, title: planTitle, is_rest: false }).select("id").single();
+                if (insertErr) {
+                    const { data: retry } = await supabase.from("scheduled_days").select("id").eq("user_id", user.id).eq("date", today).maybeSingle();
+                    day = retry;
+                } else {
+                    day = created;
+                }
             }
             if (!day) { setStatus("no_plan"); return; }
             setScheduledDayId(day.id);
@@ -266,7 +292,7 @@ export function useWorkoutSession() {
             const mapped: WorkoutExercise[] = (exRows ?? []).map((r: any) => {
                 const seg = r.exercises?.body_segment ?? "";
                 const equip = r.exercises?.equipment ?? "";
-                return { id: r.id, exercise_id: r.exercise_id, order_index: r.order_index, target_sets: r.target_sets, target_reps: r.target_reps, target_weight: r.target_weight, rest_seconds: r.rest_seconds, name: r.exercises?.name ?? "Unknown", category: r.exercises?.category ?? "", equipment: equip, body_segment: seg, isCardio: seg === "Cardio", isBodyweight: equip.toLowerCase() === "bodyweight" && seg !== "Cardio", is_unilateral: r.exercises?.is_unilateral ?? false, per_side_weight: r.exercises?.per_side_weight ?? false, superset_group: r.superset_group ?? null, image_url: r.exercises?.image_url ?? null };
+                return { id: r.id, exercise_id: r.exercise_id, order_index: r.order_index, target_sets: r.target_sets, target_reps: r.target_reps, target_weight: r.target_weight, rest_seconds: r.rest_seconds, name: r.exercises?.name ?? "Unknown", category: r.exercises?.category ?? "", equipment: equip, body_segment: seg, isCardio: seg === "Cardio", isBodyweight: equip.toLowerCase() === "bodyweight" && seg !== "Cardio", is_unilateral: r.exercises?.is_unilateral ?? false, per_side_weight: r.exercises?.per_side_weight ?? false, tracking_mode: r.exercises?.tracking_mode ?? (seg === "Cardio" ? "distance_time" : "weight_reps") as TrackingMode, discipline: (r.exercises?.discipline ?? "strength") as Discipline, superset_group: r.superset_group ?? null, image_url: r.exercises?.image_url ?? null };
             });
             setExercisesList(mapped);
             if (mapped.length === 0) { setStatus("no_plan"); return; }
@@ -295,12 +321,12 @@ export function useWorkoutSession() {
 
             setLoadProgress(50);
             const exerciseIds = mapped.map((m) => m.exercise_id);
-            const { data: priorLogs } = await supabase.from("exercise_set_logs").select("exercise_id, weight, reps, set_index, is_warmup, completed_at, workout_session_id, workout_sessions!inner(sex)").eq("user_id", user.id).eq("workout_sessions.sex", sex).in("exercise_id", exerciseIds).order("completed_at", { ascending: false }).limit(500);
+            const { data: priorLogs } = await supabase.from("exercise_set_logs").select("exercise_id, weight, reps, set_index, is_warmup, completed_at, workout_session_id, workout_sessions!inner(sex)").eq("user_id", user.id).eq("workout_sessions.sex", sex).in("exercise_id", exerciseIds).order("completed_at", { ascending: false }).limit(2000);
 
             setLoadProgress(65);
             const { data: completedSessions } = await supabase
                 .from("workout_sessions")
-                .select("id, total_sets, total_volume, duration_seconds, xp_earned")
+                .select("id, title, total_sets, total_volume, duration_seconds, xp_earned")
                 .eq("user_id", user.id)
                 .eq("date", today)
                 .eq("sex", sex)
@@ -310,8 +336,9 @@ export function useWorkoutSession() {
                 setLoadProgress(80);
                 localStorage.removeItem("sevel_active_session");
                 const lastDone = completedSessions[completedSessions.length - 1];
-                setTodaySessions(completedSessions.map((s: any) => ({ id: s.id, sets: s.total_sets ?? 0, volume: Number(s.total_volume) || 0, duration: s.duration_seconds ?? 0, xp: s.xp_earned ?? 0 })));
-                const { data: doneLogRows } = await supabase.from("exercise_set_logs").select("*").eq("workout_session_id", lastDone.id);
+                setTodaySessions(completedSessions.map((s: any) => ({ id: s.id, title: (typeof s.title === "string" ? s.title : "Workout").replace(/\[object Object\]/g, "Session"), sets: s.total_sets ?? 0, volume: Number(s.total_volume) || 0, duration: s.duration_seconds ?? 0, xp: s.xp_earned ?? 0 })));
+                const allDoneIds = completedSessions.map((s: any) => s.id);
+                const { data: doneLogRows } = await supabase.from("exercise_set_logs").select("*").in("workout_session_id", allDoneIds);
                 const doneLogMap: Record<string, SetEntry[]> = {};
                 mapped.forEach((ex) => {
                     const rows = (doneLogRows ?? []).filter((l: any) => l.scheduled_exercise_id === ex.id).sort((a: any, b: any) => a.set_index - b.set_index);
@@ -360,6 +387,64 @@ export function useWorkoutSession() {
             setLastSets(lastSetsMap);
             setOverloadHints(hints);
 
+            const predicted: Record<string, { weight: number; reps: number }[]> = {};
+            const sessionOrder: string[] = [];
+            const seen = new Set<string>();
+            (priorLogs ?? []).forEach((row: any) => {
+                if (existingSession && row.workout_session_id === existingSession.id) return;
+                if (!seen.has(row.workout_session_id)) { seen.add(row.workout_session_id); sessionOrder.push(row.workout_session_id); }
+            });
+            for (const ex of mapped) {
+                const bySession: Record<string, { weight: number; reps: number }[]> = {};
+                (priorLogs ?? []).forEach((row: any) => {
+                    if (existingSession && row.workout_session_id === existingSession.id) return;
+                    if (row.exercise_id !== ex.exercise_id || row.is_warmup) return;
+                    if (!bySession[row.workout_session_id]) bySession[row.workout_session_id] = [];
+                    bySession[row.workout_session_id].push({ weight: row.weight ?? 0, reps: row.reps ?? 0 });
+                });
+                const sessions = sessionOrder.filter(sid => bySession[sid]).map(sid => {
+                    const sets = bySession[sid];
+                    sets.sort((a, b) => (a.weight || 0) - (b.weight || 0));
+                    const topWeight = sets.reduce((mx, s) => Math.max(mx, s.weight || 0), 0);
+                    const topReps = sets.find(s => s.weight === topWeight)?.reps ?? sets[0]?.reps ?? 0;
+                    return { weight: topWeight, reps: topReps, sets };
+                });
+                if (sessions.length < 2) {
+                    if (lastSetsMap[ex.exercise_id]) predicted[ex.exercise_id] = lastSetsMap[ex.exercise_id].map(s => ({ weight: s.weight ?? 0, reps: s.reps ?? 0 }));
+                    continue;
+                }
+                const recent = sessions.slice(0, Math.min(4, sessions.length));
+                recent.reverse();
+                let weightDelta = 0, repsDelta = 0, trendCount = 0;
+                for (let i = 1; i < recent.length; i++) {
+                    weightDelta += recent[i].weight - recent[i - 1].weight;
+                    repsDelta += recent[i].reps - recent[i - 1].reps;
+                    trendCount++;
+                }
+                if (trendCount > 0) { weightDelta /= trendCount; repsDelta /= trendCount; }
+                const lastSession = sessions[0];
+                const lastSetsForEx = lastSetsMap[ex.exercise_id] ?? lastSession.sets;
+                const isIncreasing = weightDelta > 0;
+                const maxTarget = Number(ex.target_reps.split("-").pop()) || 10;
+                predicted[ex.exercise_id] = lastSetsForEx.map(s => {
+                    const w = s.weight ?? 0;
+                    const r = s.reps ?? 0;
+                    if (isIncreasing) {
+                        const step = w < 20 ? 1 : w < 50 ? 2.5 : 5;
+                        return { weight: Math.round((w + step) * 10) / 10, reps: r };
+                    }
+                    if (r >= maxTarget && weightDelta >= 0) {
+                        const step = w < 20 ? 1 : w < 50 ? 2.5 : 5;
+                        return { weight: Math.round((w + step) * 10) / 10, reps: Math.max(1, r - 2) };
+                    }
+                    if (repsDelta > 0) {
+                        return { weight: w, reps: Math.min(r + 1, maxTarget) };
+                    }
+                    return { weight: w, reps: r };
+                });
+            }
+            setPredictedSets(predicted);
+
             if (existingSession) {
                 setSessionId(existingSession.id);
                 activeSessionRef.current = existingSession.id;
@@ -388,8 +473,9 @@ export function useWorkoutSession() {
             } else if (completedSessions && completedSessions.length > 0) {
                 localStorage.removeItem("sevel_active_session");
                 const lastDone = completedSessions[completedSessions.length - 1];
-                setTodaySessions(completedSessions.map((s: any) => ({ id: s.id, sets: s.total_sets ?? 0, volume: Number(s.total_volume) || 0, duration: s.duration_seconds ?? 0, xp: s.xp_earned ?? 0 })));
-                const { data: doneLogRows2 } = await supabase.from("exercise_set_logs").select("*").eq("workout_session_id", lastDone.id);
+                setTodaySessions(completedSessions.map((s: any) => ({ id: s.id, title: (typeof s.title === "string" ? s.title : "Workout").replace(/\[object Object\]/g, "Session"), sets: s.total_sets ?? 0, volume: Number(s.total_volume) || 0, duration: s.duration_seconds ?? 0, xp: s.xp_earned ?? 0 })));
+                const allSessionIds = completedSessions.map((s: any) => s.id);
+                const { data: doneLogRows2 } = await supabase.from("exercise_set_logs").select("*").in("workout_session_id", allSessionIds);
                 const doneLogMap2: Record<string, SetEntry[]> = {};
                 mapped.forEach((ex) => {
                     const rows = (doneLogRows2 ?? []).filter((l: any) => l.scheduled_exercise_id === ex.id).sort((a: any, b: any) => a.set_index - b.set_index);
@@ -407,11 +493,11 @@ export function useWorkoutSession() {
                 // Double-check: if cache says completed but query returned null/empty, re-query once
                 const cacheCheck = (() => { try { const c = JSON.parse(localStorage.getItem("sevel_workout_cache") || "null"); return c?.completed === true; } catch { return false; } })();
                 if (cacheCheck && !completedSessions) {
-                    const { data: retry } = await supabase.from("workout_sessions").select("id, total_sets, total_volume, duration_seconds, xp_earned").eq("user_id", user.id).eq("date", today).eq("sex", sex).eq("status", "completed").order("created_at", { ascending: true });
+                    const { data: retry } = await supabase.from("workout_sessions").select("id, title, total_sets, total_volume, duration_seconds, xp_earned").eq("user_id", user.id).eq("date", today).eq("sex", sex).eq("status", "completed").order("created_at", { ascending: true });
                     if (retry && retry.length > 0) {
                         localStorage.removeItem("sevel_active_session");
                         const lastDone = retry[retry.length - 1];
-                        setTodaySessions(retry.map((s: any) => ({ id: s.id, sets: s.total_sets ?? 0, volume: Number(s.total_volume) || 0, duration: s.duration_seconds ?? 0, xp: s.xp_earned ?? 0 })));
+                        setTodaySessions(retry.map((s: any) => ({ id: s.id, title: (typeof s.title === "string" ? s.title : "Workout").replace(/\[object Object\]/g, "Session"), sets: s.total_sets ?? 0, volume: Number(s.total_volume) || 0, duration: s.duration_seconds ?? 0, xp: s.xp_earned ?? 0 })));
                         const { data: doneLogRows3 } = await supabase.from("exercise_set_logs").select("*").eq("workout_session_id", lastDone.id);
                         const doneLogMap3: Record<string, SetEntry[]> = {};
                         mapped.forEach((ex) => {
@@ -425,6 +511,7 @@ export function useWorkoutSession() {
                         setSummary({ sets: lastDone.total_sets ?? 0, volume: Number(lastDone.total_volume) || 0, duration: lastDone.duration_seconds ?? 0, xpBreakdown: { base: 0, setCompletion: 0, completionBonus: 0, prBonus: 0, progressionBonus: 0, consistencyBonus: 0, total: lastDone.xp_earned ?? 0, details: [] }, level: lvl3, rankName: getRank(lvl3).name });
                         setLoadProgress(100);
                         setStatus("completed");
+                        try { const c = JSON.parse(localStorage.getItem("sevel_workout_cache") || "null"); if (c) { c.completed = true; localStorage.setItem("sevel_workout_cache", JSON.stringify(c)); } } catch {}
                         return;
                     }
                 }
@@ -476,7 +563,7 @@ export function useWorkoutSession() {
             ]);
             if (cancelled) return;
 
-            setRecentSessions((recent ?? []).map((s: any) => ({ id: s.id, date: s.date, title: s.title ?? "Workout", sets: s.total_sets ?? 0, volume: Number(s.total_volume) || 0, xp: s.xp_earned ?? 0 })));
+            setRecentSessions((recent ?? []).map((s: any) => ({ id: s.id, date: s.date, title: (typeof s.title === "string" ? s.title : "Workout").replace(/\[object Object\]/g, "Session"), sets: s.total_sets ?? 0, volume: Number(s.total_volume) || 0, xp: s.xp_earned ?? 0 })));
             setSessionCount(totalCount ?? 0);
 
             const completedDates = new Set((weekSessions ?? []).map((s: any) => s.date));
@@ -683,12 +770,14 @@ export function useWorkoutSession() {
         activeSessionRef.current = data.id;
         setStartedAt(new Date(data.started_at).getTime());
         localStorage.setItem("sevel_active_session", "true");
+        localStorage.setItem("sevel_session_start", String(new Date(data.started_at).getTime()));
+        if (exercisesList[0]) localStorage.setItem("sevel_current_exercise", exercisesList[0].name);
         setStatus("active");
         setExpandedId(exercisesList[0]?.id ?? null);
         requestWakeLock();
     }
 
-    function addFreestyleExercise(ex: { id: string; name: string; category?: string; equipment?: string; body_segment?: string }) {
+    function addFreestyleExercise(ex: { id: string; name: string; category?: string; equipment?: string; body_segment?: string; tracking_mode?: TrackingMode; discipline?: Discipline }) {
         const seg = ex.body_segment ?? "";
         const equip = ex.equipment ?? "";
         const localEx: WorkoutExercise = {
@@ -707,9 +796,11 @@ export function useWorkoutSession() {
             isBodyweight: equip.toLowerCase() === "bodyweight" && seg !== "Cardio",
             is_unilateral: false,
             per_side_weight: false,
+            tracking_mode: ex.tracking_mode ?? (seg === "Cardio" ? "distance_time" : "weight_reps"),
+            discipline: ex.discipline ?? "strength",
         };
         supabase.from("exercises").select("per_side_weight").eq("id", ex.id).maybeSingle().then(({ data }) => {
-            if (data?.per_side_weight) setFreestyleExercises((p) => p.map((e) => e.exercise_id === ex.id ? { ...e, per_side_weight: true } : e));
+            if (data) setFreestyleExercises((p) => p.map((e) => e.exercise_id === ex.id ? { ...e, per_side_weight: data.per_side_weight ?? false } : e));
         });
         setFreestyleExercises((p) => [...p, localEx]);
         setShowFreestyleAddModal(false);
@@ -749,7 +840,7 @@ export function useWorkoutSession() {
 
         const mapped: WorkoutExercise[] = (exRows ?? []).map((r: any) => {
             const seg = r.exercises?.body_segment ?? ""; const equip = r.exercises?.equipment ?? "";
-            return { id: r.id, exercise_id: r.exercise_id, order_index: r.order_index, target_sets: r.target_sets, target_reps: r.target_reps, target_weight: r.target_weight, rest_seconds: r.rest_seconds, name: r.exercises?.name ?? "Unknown", category: r.exercises?.category ?? "", equipment: equip, body_segment: seg, isCardio: seg === "Cardio", isBodyweight: equip.toLowerCase() === "bodyweight" && seg !== "Cardio", is_unilateral: r.exercises?.is_unilateral ?? false, per_side_weight: r.exercises?.per_side_weight ?? false, superset_group: r.superset_group ?? null, image_url: r.exercises?.image_url ?? null };
+            return { id: r.id, exercise_id: r.exercise_id, order_index: r.order_index, target_sets: r.target_sets, target_reps: r.target_reps, target_weight: r.target_weight, rest_seconds: r.rest_seconds, name: r.exercises?.name ?? "Unknown", category: r.exercises?.category ?? "", equipment: equip, body_segment: seg, isCardio: seg === "Cardio", isBodyweight: equip.toLowerCase() === "bodyweight" && seg !== "Cardio", is_unilateral: r.exercises?.is_unilateral ?? false, per_side_weight: r.exercises?.per_side_weight ?? false, tracking_mode: (seg === "Cardio" ? "distance_time" : "weight_reps") as TrackingMode, discipline: "strength" as Discipline, superset_group: r.superset_group ?? null, image_url: r.exercises?.image_url ?? null };
         });
 
         const { data: session } = await supabase.from("workout_sessions").insert({ user_id: user.id, scheduled_day_id: day.id, date: today, title: "Freestyle Session", status: "active", sex: userSex }).select().single();
@@ -824,6 +915,7 @@ export function useWorkoutSession() {
         const prev = data?.[0]?.weight ?? 0;
         if (w > prev && prev > 0) {
             setPrCount((c) => c + 1);
+            setPrExerciseIds((s) => new Set(s).add(exerciseId));
             await supabase.from("notifications").insert({ user_id: user.id, type: "new_pr", title: "NEW PERSONAL RECORD", message: `${name}: ${kgToUnit(w, weightUnit)}${weightUnit} × ${r} — previous best was ${kgToUnit(prev, weightUnit)}${weightUnit}`, metadata: { exercise_name: name, weight: w, reps: r, previous_best: prev }, sex: userSex });
         }
     }
@@ -847,7 +939,7 @@ export function useWorkoutSession() {
 
         let finalWeight = overrides?.weight ?? set.weight;
         let finalReps = overrides?.reps ?? set.reps;
-        if (!finalWeight && prevSet?.weight != null && !ex.isCardio && !ex.isBodyweight) finalWeight = String(kgToUnit(prevSet.weight, weightUnit));
+        if (!finalWeight && prevSet?.weight != null && !ex.isCardio && !ex.isBodyweight) finalWeight = String(prevSet.weight);
         if (!finalReps && prevSet?.reps != null && !ex.isCardio) finalReps = String(prevSet.reps);
 
         if (ex.isCardio) {
@@ -920,7 +1012,14 @@ export function useWorkoutSession() {
             ...p,
             [exId]: (p[exId] ?? []).map((s) => (s.index === setIdx ? { ...s, completed: false, logId: null } : s)),
         }));
-        if (logId) await supabase.from("exercise_set_logs").delete().eq("id", logId);
+        if (logId) {
+            await supabase.from("exercise_set_logs").delete().eq("id", logId);
+        } else {
+            const undoneExId = exercisesList.find((e) => e.id === exId)?.exercise_id;
+            if (undoneExId) {
+                removeFromQueue((w) => w.table === "exercise_set_logs" && w.operation === "insert" && (w.data as any)?.exercise_id === undoneExId && (w.data as any)?.set_index === setIdx);
+            }
+        }
         setRestRemaining(null);
         setRestPaused(false);
         setLastAction(null);
@@ -998,7 +1097,7 @@ export function useWorkoutSession() {
         const { data } = await supabase.from("exercises").select("category, equipment, body_segment, is_unilateral, per_side_weight").eq("id", newEx.id).maybeSingle();
         const seg = data?.body_segment ?? ""; const equip = data?.equipment ?? "";
         await supabase.from("scheduled_exercises").update({ exercise_id: newEx.id }).eq("id", oldEx.id);
-        setExercisesList((p) => p.map((e) => (e.id === oldEx.id ? { ...e, exercise_id: newEx.id, name: newEx.name, body_segment: seg, equipment: equip, isCardio: seg === "Cardio", isBodyweight: equip.toLowerCase() === "bodyweight" && seg !== "Cardio", is_unilateral: data?.is_unilateral ?? false, per_side_weight: data?.per_side_weight ?? false } : e)));
+        setExercisesList((p) => p.map((e) => (e.id === oldEx.id ? { ...e, exercise_id: newEx.id, name: newEx.name, body_segment: seg, equipment: equip, isCardio: seg === "Cardio", isBodyweight: equip.toLowerCase() === "bodyweight" && seg !== "Cardio", is_unilateral: data?.is_unilateral ?? false, per_side_weight: data?.per_side_weight ?? false, tracking_mode: (seg === "Cardio" ? "distance_time" : "weight_reps") as TrackingMode, discipline: "strength" as Discipline } : e)));
         setLogs((p) => ({ ...p, [oldEx.id]: Array.from({ length: oldEx.target_sets }, (_, i) => emptySet(i)) }));
         setSwapTargetId(null);
     }
@@ -1009,7 +1108,7 @@ export function useWorkoutSession() {
         const seg = exData?.body_segment ?? ""; const equip = exData?.equipment ?? ""; const nextOrder = exercisesList.length;
         const { data: created } = await supabase.from("scheduled_exercises").insert({ scheduled_day_id: scheduledDayId, user_id: user.id, exercise_id: newEx.id, order_index: nextOrder, target_sets: 3, target_reps: "8-10" }).select().single();
         if (!created) return;
-        const ex: WorkoutExercise = { id: created.id, exercise_id: newEx.id, order_index: nextOrder, target_sets: 3, target_reps: "8-10", target_weight: null, rest_seconds: 90, name: newEx.name, category: exData?.category ?? "", equipment: equip, body_segment: seg, isCardio: seg === "Cardio", isBodyweight: equip.toLowerCase() === "bodyweight" && seg !== "Cardio", is_unilateral: exData?.is_unilateral ?? false, per_side_weight: exData?.per_side_weight ?? false };
+        const ex: WorkoutExercise = { id: created.id, exercise_id: newEx.id, order_index: nextOrder, target_sets: 3, target_reps: "8-10", target_weight: null, rest_seconds: 90, name: newEx.name, category: exData?.category ?? "", equipment: equip, body_segment: seg, isCardio: seg === "Cardio", isBodyweight: equip.toLowerCase() === "bodyweight" && seg !== "Cardio", is_unilateral: exData?.is_unilateral ?? false, per_side_weight: exData?.per_side_weight ?? false, tracking_mode: (seg === "Cardio" ? "distance_time" : "weight_reps") as TrackingMode, discipline: "strength" as Discipline };
         setExercisesList((p) => [...p, ex]);
         setLogs((p) => ({ ...p, [ex.id]: Array.from({ length: 3 }, (_, i) => emptySet(i)) }));
         setExpandedId(ex.id);
@@ -1071,6 +1170,19 @@ export function useWorkoutSession() {
         setSkippedExercises((prev) => { const next = new Set(prev); next.delete(exId); return next; });
     }
 
+    function laterExercise(exId: string) {
+        setExercisesList((prev) => {
+            const idx = prev.findIndex(e => e.id === exId);
+            if (idx === -1 || idx === prev.length - 1) return prev;
+            const item = prev[idx];
+            const next = [...prev.slice(0, idx), ...prev.slice(idx + 1), item];
+            return next;
+        });
+        const currentIdx = exercisesList.findIndex(e => e.id === exId);
+        const nextEx = exercisesList.slice(currentIdx + 1).find(e => !skippedExercises.has(e.id) && !confirmedExercises.has(e.id));
+        if (nextEx) setExpandedId(nextEx.id);
+    }
+
     function toggleWarmup(ex: WorkoutExercise) {
         const hasWarmup = warmupExercises.has(ex.id);
         if (hasWarmup) {
@@ -1112,7 +1224,7 @@ export function useWorkoutSession() {
             return sum + (Number(s.weight) || 0) * (Number(s.reps) || 0) * mult;
         }, 0);
         const dur = Math.floor((Date.now() - startedAt) / 1000) - pausedElapsed;
-        const totalPlannedSets = exercisesList.reduce((sum, e) => sum + e.target_sets, 0);
+        const totalPlannedSets = exercisesList.reduce((sum, e) => sum + (e.isCardio ? 1 : e.target_sets), 0);
         const setsData = workingSets.map((s) => { const ex = exercisesList.find((e) => logs[e.id]?.includes(s)); return { exercise_id: ex?.exercise_id ?? "", weight: Number(s.weight) || null, reps: Number(s.reps) || null }; });
         const xp = await calculateSessionXP(user.id, sessionId, setsData, totalPlannedSets, prCount, userSex);
 
@@ -1154,20 +1266,58 @@ export function useWorkoutSession() {
         }
 
         localStorage.removeItem("sevel_active_session");
+        localStorage.removeItem("sevel_current_exercise");
+        localStorage.removeItem("sevel_session_start");
+        localStorage.removeItem("sevel_set_progress");
+        localStorage.removeItem("sevel_resting");
+        localStorage.removeItem("sevel_momentum");
         activeSessionRef.current = null;
         clearDraft();
         releaseWakeLock();
-        setTodaySessions(prev => [...prev, { id: sessionId!, duration: dur, sets: totalSets, volume: totalVolume, xp: xp.total }]);
+        setTodaySessions(prev => [...prev, { id: sessionId!, title: dayTitle, duration: dur, sets: totalSets, volume: totalVolume, xp: xp.total }]);
         setSummary({ duration: dur, sets: totalSets, volume: totalVolume, xpBreakdown: xp, level: lvlAfter, rankName: getRank(lvlAfter).name });
         setStatus("completed");
         try { const c = JSON.parse(localStorage.getItem("sevel_workout_cache") || "null"); if (c) { c.completed = true; localStorage.setItem("sevel_workout_cache", JSON.stringify(c)); } } catch {}
         setRestRemaining(null);
     }
 
-    async function rateSession(rating: number) {
-        if (!sessionId || rating < 1 || rating > 5) return;
-        setSessionRating(rating);
-        try { await supabase.from("workout_sessions").update({ rating }).eq("id", sessionId); } catch {}
+    async function cancelSession() {
+        if (!sessionId) return;
+        try {
+            await supabase.from("exercise_set_logs").delete().eq("workout_session_id", sessionId);
+            await supabase.from("workout_sessions").delete().eq("id", sessionId);
+        } catch {}
+        localStorage.removeItem("sevel_active_session");
+        localStorage.removeItem("sevel_current_exercise");
+        localStorage.removeItem("sevel_session_start");
+        localStorage.removeItem("sevel_set_progress");
+        localStorage.removeItem("sevel_resting");
+        localStorage.removeItem("sevel_momentum");
+        activeSessionRef.current = null;
+        clearDraft();
+        releaseWakeLock();
+        setSessionId(null);
+        setStartedAt(null);
+        setElapsed(0);
+        setPausedElapsed(0);
+        pausedElapsedRef.current = 0;
+        setSessionPaused(false);
+        setShowCancelConfirm(false);
+        setRestRemaining(null);
+        setLogs((prev) => {
+            const reset: Record<string, SetEntry[]> = {};
+            for (const [exId, sets] of Object.entries(prev)) {
+                reset[exId] = sets.map((s) => ({ ...s, completed: false, logId: null }));
+            }
+            return reset;
+        });
+        setConfirmedExercises(new Set());
+        setSkippedExercises(new Set());
+        setWarmupExercises(new Set());
+        setPrCount(0);
+        setPrExerciseIds(new Set());
+        setLastAction(null);
+        setStatus("not_started");
     }
 
     async function generateShareImage(): Promise<Blob | null> {
@@ -1308,8 +1458,13 @@ export function useWorkoutSession() {
     function confirmExercise(exId: string) {
         setConfirmedExercises((prev) => new Set([...prev, exId]));
         const currentIdx = exercisesList.findIndex((e) => e.id === exId);
-        const next = exercisesList[currentIdx + 1];
+        const remaining = exercisesList.slice(currentIdx + 1);
+        const next = remaining.find((e) => {
+            const eSets = (logs[e.id] ?? []).filter((s) => !s.is_warmup);
+            return eSets.length === 0 || eSets.some((s) => !s.completed);
+        });
         if (next) setExpandedId(next.id);
+        else setExpandedId(null);
     }
 
     function startAnotherWorkout() {
@@ -1321,6 +1476,14 @@ export function useWorkoutSession() {
         setPausedElapsed(0);
         pausedElapsedRef.current = 0;
         setSessionPaused(false);
+        setLogs({});
+        setConfirmedExercises(new Set());
+        setSkippedExercises(new Set());
+        setWarmupExercises(new Set());
+        setPrCount(0);
+        setPrExerciseIds(new Set());
+        setLastAction(null);
+        setTodaySessions([]);
         setStatus("not_started");
     }
 
@@ -1345,21 +1508,96 @@ export function useWorkoutSession() {
         setStatus(exercisesList.length > 0 ? "not_started" : "no_plan");
     }
 
+    async function repeatLastSession() {
+        if (!user) return;
+        let lastSession: { id: string } | null = null;
+        const { data: sexMatch } = await supabase
+            .from("workout_sessions")
+            .select("id")
+            .eq("user_id", user.id)
+            .eq("status", "completed")
+            .eq("sex", userSex)
+            .order("completed_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        lastSession = sexMatch;
+        if (!lastSession) {
+            const { data: anyMatch } = await supabase
+                .from("workout_sessions")
+                .select("id")
+                .eq("user_id", user.id)
+                .eq("status", "completed")
+                .order("completed_at", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            lastSession = anyMatch;
+        }
+        if (!lastSession) {
+            setStatus("freestyle");
+            return;
+        }
+
+        const { data: lastLogs } = await supabase
+            .from("exercise_set_logs")
+            .select("exercise_id, exercises(name, category, equipment, body_segment, is_unilateral, per_side_weight, image_url)")
+            .eq("workout_session_id", lastSession.id)
+            .order("set_index");
+        if (!lastLogs || lastLogs.length === 0) {
+            setStatus("freestyle");
+            return;
+        }
+
+        const seen = new Set<string>();
+        const exercises: WorkoutExercise[] = [];
+        let idx = 0;
+        for (const log of lastLogs) {
+            if (seen.has(log.exercise_id)) continue;
+            seen.add(log.exercise_id);
+            const ex = (log as any).exercises;
+            const seg = ex?.body_segment ?? "";
+            const equip = ex?.equipment ?? "";
+            const setsCount = lastLogs.filter(l => l.exercise_id === log.exercise_id).length;
+            exercises.push({
+                id: `repeat-${idx}-${Date.now()}`,
+                exercise_id: log.exercise_id,
+                order_index: idx,
+                target_sets: setsCount || 3,
+                target_reps: "8-10",
+                target_weight: null,
+                rest_seconds: 90,
+                name: ex?.name ?? "Unknown",
+                category: ex?.category ?? "",
+                equipment: equip,
+                body_segment: seg,
+                isCardio: seg === "Cardio",
+                isBodyweight: equip.toLowerCase() === "bodyweight" && seg !== "Cardio",
+                is_unilateral: ex?.is_unilateral ?? false,
+                per_side_weight: ex?.per_side_weight ?? false,
+                tracking_mode: ex?.tracking_mode ?? "weight_reps",
+                discipline: ex?.discipline ?? "strength",
+                image_url: ex?.image_url ?? null,
+            });
+            idx++;
+        }
+        setFreestyleExercises(exercises);
+        setStatus("freestyle");
+    }
+
     return {
         // Core state
         status, dayTitle, scheduledDayId, exercisesList, logs, sessionId, startedAt, elapsed,
 
         // UI state
         expandedId, restRemaining, restPaused, sessionPaused, pausedElapsed,
-        swapTargetId, showAddModal, showEndConfirm, showFreestyleAddModal,
+        swapTargetId, showAddModal, showEndConfirm, showCancelConfirm, showFreestyleAddModal,
         showDeletePlanConfirm, showFreestylePrompt, finishing, sharing,
 
         // Data
-        lastPerformance, lastSets, overloadHints, summary, todaySessions,
+        lastPerformance, lastSets, predictedSets, overloadHints, summary, todaySessions,
         recentSessions, weekDays, weeklyVolumes, statsLoaded, sessionCount, nextSession, staleExercises,
         cycleProfile, energyForecast, exerciseRisks, substitutions,
         freestyleExercises, skippedExercises, warmupExercises,
-        confirmedExercises, prCount, preWorkoutWeight, weightLogged, lastAction,
+        confirmedExercises, prCount, prExerciseIds, preWorkoutWeight, weightLogged, lastAction,
         startingFreestyle, savingFreestylePlan, deletingPlan,
 
         // Derived
@@ -1372,14 +1610,14 @@ export function useWorkoutSession() {
         setExpandedId, setSwapTargetId, setShowAddModal, setShowEndConfirm,
         setShowFreestyleAddModal, setShowDeletePlanConfirm, setStatus,
         setRestRemaining, setRestPaused, setSessionPaused, setPreWorkoutWeight,
-        setSummary, setSessionId, setShowFreestylePrompt,
+        setSummary, setSessionId, setShowFreestylePrompt, setShowCancelConfirm,
         setFreestyleExercises,
 
         // Actions
-        startWorkout, beginFreestyleSession, addFreestyleExercise, removeFreestyleExercise,
+        startWorkout, beginFreestyleSession, addFreestyleExercise, removeFreestyleExercise, repeatLastSession,
         updateSet, completeSet, editSet, undoLastSet, updateSetRpe, addDropSet, addRestPauseSet, toggleSuperset, getSupersetGroup, handleSwap, handleAddExercise, addSet, removeSet,
-        deletePlan, removeExercise, skipExercise, unskipExercise, toggleWarmup,
-        finishWorkout, handleShare, saveFreestyleAsRecurringPlan, rateSession, sessionRating,
+        deletePlan, removeExercise, skipExercise, unskipExercise, laterExercise, toggleWarmup,
+        finishWorkout, handleShare, saveFreestyleAsRecurringPlan, cancelSession,
         logBodyWeight, confirmExercise, startAnotherWorkout, startManualRestTimer,
         addRestTime, dismissRestTimer, goBackFromFreestyle,
     };

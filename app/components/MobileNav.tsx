@@ -42,7 +42,7 @@ export default function MobileNav() {
 
   const tabs = [
     { icon: LayoutDashboard, label: "Hub", href: "/", match: ["/"] },
-    { icon: Dumbbell, label: "Train", href: "/workout", match: ["/workout", "/train", "/schedule", ...routes.train] },
+    { icon: Dumbbell, label: "Train", href: "/schedule", match: ["/workout", "/train", "/schedule", ...routes.train] },
     { icon: TrendingUp, label: "Track", href: "/track", match: ["/track", ...routes.track] },
     { icon: Users, label: "Social", href: "/social", match: ["/social", ...routes.social] },
     { icon: User, label: "You", href: "/you", match: ["/you", ...routes.you] },

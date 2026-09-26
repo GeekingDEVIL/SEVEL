@@ -1,2433 +1,413 @@
 "use client";
 
-import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { Check, Plus, Play, X, RefreshCw, Pause, SkipForward, ChevronDown, ChevronRight, Moon, Flame, Dumbbell, Timer, TrendingUp, Share2, Trash2, Ban, Calendar, Pencil, Undo2, Minus, Info, Camera } from "lucide-react";
-import { useSwipeable } from "react-swipeable";
-import CubeLoader from "../../components/ui/cube-loader";
-import AddExerciseModal from "../../components/AddExerciseModal";
-import ExerciseDetailSheet from "../../components/ExerciseDetailSheet";
-import WorkoutCompleteCard from "../../components/WorkoutCompleteCard";
+import { useState, useEffect, useMemo } from "react";
+import { Search, X, ChevronDown, ChevronRight, Dumbbell, BookOpen, Zap, Filter, Database } from "lucide-react";
 import SwipeNav from "../../components/ui/swipe-nav";
+import CubeLoader from "../../components/ui/cube-loader";
+import ExerciseDetailSheet from "../../components/ExerciseDetailSheet";
+import PlanBrowserModal from "../../components/PlanBrowserModal";
 import { useModules } from "../../lib/useModules";
-import { getTrainSections } from "../../lib/navPills";
-import { detectFatigue, type FatigueAlert } from "../../lib/intelligenceEngine";
-import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/AuthProvider";
-import {
-    useWorkoutSession,
-    formatClock,
-    kgToUnit,
-    isDualWeight,
-    getCycleAdjustedWeight,
-    type WorkoutExercise,
-    type SetEntry,
-} from "../../lib/useWorkoutSession";
+import { getTrainSections } from "../../lib/navPills";
+import { supabase } from "../../lib/supabase";
+import { useUnits } from "../../lib/useUnits";
+import { useSex } from "../../lib/useSex";
+import { QUICK_START_TEMPLATES, type QuickStartTemplate } from "../../lib/quickStartTemplates";
 
-/* ─── LAZY FORM CHECK ─── */
-import dynamic from "next/dynamic";
-const LazyFormCheck = dynamic(() => import("../../components/FormCheckCamera"), { ssr: false, loading: () => (
-    <div className="fixed inset-0 z-[200] bg-black flex items-center justify-center">
-        <div className="w-10 h-10 border-2 border-[rgb(var(--accent-rgb)/0.3)] border-t-[rgb(var(--accent-rgb))] rounded-full animate-spin" />
-    </div>
-) });
-
-/* ─── CARD WRAPPER ─── */
-function CardPanel({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-    return (
-        <div className={`rounded-2xl border border-[var(--fg-06)] bg-[var(--fg-03)] ${className}`}>{children}</div>
-    );
-}
-
-/* ─── MUSCLE HIT MAP ─── */
-const MUSCLE_REGIONS: Record<string, { label: string; paths: string[] }> = {
-    Chest:     { label: "Chest",     paths: ["M32,28 Q40,26 48,28 L48,36 Q40,38 32,36 Z"] },
-    Shoulders: { label: "Shoulders", paths: ["M24,24 Q28,22 32,26 L32,30 Q28,30 24,28 Z", "M48,26 Q52,22 56,24 L56,28 Q52,30 48,30 Z"] },
-    Biceps:    { label: "Biceps",    paths: ["M20,32 Q22,30 24,32 L24,42 Q22,44 20,42 Z", "M56,32 Q58,30 60,32 L60,42 Q58,44 56,42 Z"] },
-    Triceps:   { label: "Triceps",   paths: ["M16,32 Q18,30 20,32 L20,42 Q18,44 16,42 Z", "M60,32 Q62,30 64,32 L64,42 Q62,44 60,42 Z"] },
-    Forearms:  { label: "Forearms",  paths: ["M18,44 Q20,42 22,44 L21,54 Q19,55 17,54 Z", "M58,44 Q60,42 62,44 L63,54 Q61,55 59,54 Z"] },
-    Core:      { label: "Core",      paths: ["M34,38 Q40,37 46,38 L46,52 Q40,54 34,52 Z"] },
-    Back:      { label: "Back",      paths: ["M33,28 Q40,26 47,28 L47,38 Q40,40 33,38 Z"] },
-    Traps:     { label: "Traps",     paths: ["M30,20 Q40,18 50,20 L48,26 Q40,24 32,26 Z"] },
-    Legs:      { label: "Legs",      paths: ["M30,54 Q34,52 38,54 L37,72 Q33,74 29,72 Z", "M42,54 Q46,52 50,54 L51,72 Q47,74 43,72 Z"] },
-    Glutes:    { label: "Glutes",    paths: ["M32,50 Q40,48 48,50 L48,56 Q40,58 32,56 Z"] },
+const SEGMENT_ORDER = ["Chest", "Back", "Shoulders", "Arms", "Legs", "Core", "Cardio", "Other"];
+const SEGMENT_COLORS: Record<string, string> = {
+    Chest: "239 68 68", Shoulders: "249 115 22", Back: "59 130 246",
+    Arms: "168 85 247", Legs: "16 185 129", Core: "234 179 8",
+    Cardio: "236 72 153", Other: "107 114 128",
 };
 
-function MuscleHitMap({ hitSegments }: { hitSegments: Set<string> }) {
-    if (hitSegments.size === 0) return null;
-    const hitCount = hitSegments.size;
-    return (
-        <div className="glass-card p-3 mb-4">
-            <p className="text-[9px] font-mono tracking-widest text-[var(--fg-25)] mb-2 text-center">MUSCLES TARGETED</p>
-            <div className="flex items-center justify-center gap-4">
-                <svg viewBox="10 14 60 64" width="90" height="90" className="shrink-0">
-                    {Object.entries(MUSCLE_REGIONS).map(([seg, { paths }]) => {
-                        const hit = hitSegments.has(seg);
-                        return paths.map((d, i) => (
-                            <path
-                                key={`${seg}-${i}`}
-                                d={d}
-                                fill={hit ? "rgb(var(--accent-rgb) / 0.5)" : "rgb(var(--fg-rgb) / 0.06)"}
-                                stroke={hit ? "rgb(var(--accent-rgb) / 0.7)" : "rgb(var(--fg-rgb) / 0.1)"}
-                                strokeWidth="0.5"
-                                strokeLinejoin="round"
-                            />
-                        ));
-                    })}
-                </svg>
-                <div className="flex flex-wrap gap-1 max-w-[180px]">
-                    {Array.from(hitSegments).filter(s => s !== "Cardio" && s !== "Other").map(seg => (
-                        <span key={seg} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[rgb(var(--accent-rgb)/0.1)] border border-[rgb(var(--accent-rgb)/0.2)] text-[rgb(var(--accent-light-rgb))]">
-                            {seg}
-                        </span>
-                    ))}
-                    {hitCount > 0 && (
-                        <span className="text-[9px] font-mono px-1.5 py-0.5 text-[var(--fg-25)]">
-                            {hitCount} group{hitCount !== 1 ? "s" : ""}
-                        </span>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
-}
+const DISCIPLINE_FILTER_ORDER = ["strength", "boxing", "muay_thai", "bjj", "mma", "karate", "taekwondo", "calisthenics", "cardio", "mobility"] as const;
+const DISCIPLINE_COLORS_HEX: Record<string, string> = {
+    boxing: "#ef4444", muay_thai: "#f97316", kickboxing: "#f97316",
+    bjj: "#a78bfa", wrestling: "#8b5cf6", judo: "#7c3aed", mma: "#ec4899",
+    karate: "#3b82f6", taekwondo: "#60a5fa", calisthenics: "#34d399",
+    cardio: "#fbbf24", mobility: "#22d3ee", strength: "#94a3b8",
+};
 
-/* ─── STAT CELL ─── */
-function StatCell({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-    return (
-        <div className="glass-card px-3 py-2.5 text-center">
-            <p className="text-[8px] font-mono tracking-widest text-[var(--fg-25)] mb-0.5">{label}</p>
-            <p className={`text-lg font-bold font-mono ${accent ? "text-[rgb(var(--accent-rgb))]" : "text-[var(--fg-90)]"}`}>{value}</p>
-        </div>
-    );
-}
+type Exercise = {
+    id: string; name: string; body_segment: string; primary_muscle: string;
+    secondary_muscles: string[]; equipment: string; equipment_type: string;
+    category: string; difficulty: string; is_unilateral: boolean;
+    per_side_weight: boolean; instructions: string | null; tracking_method: string | null;
+    image_url: string | null; discipline: string | null;
+};
 
-/* ─── SWIPE-TO-COMPLETE SET ─── */
-const SWIPE_THRESHOLD = 80;
+export default function WorkoutLibraryPage() {
+    const { user } = useAuth();
+    const { enabledKeys } = useModules();
+    const weightUnit = useUnits();
+    const { sex: userSex } = useSex();
 
-function SwipeSet({ completed, onComplete, children }: { completed: boolean; onComplete: () => void; children: React.ReactNode }) {
-    const [dragX, setDragX] = useState(0);
-    const [swiping, setSwiping] = useState(false);
-    const pastThreshold = dragX >= SWIPE_THRESHOLD;
-
-    const handlers = useSwipeable({
-        onSwiping: (e) => {
-            if (completed || e.dir !== "Right") return;
-            setSwiping(true);
-            setDragX(Math.max(0, Math.min(e.deltaX, SWIPE_THRESHOLD * 1.5)));
-        },
-        onSwiped: (e) => {
-            if (!completed && e.dir === "Right" && e.deltaX >= SWIPE_THRESHOLD) {
-                onComplete();
-            }
-            setDragX(0);
-            setSwiping(false);
-        },
-        trackMouse: true,
-    });
-
-    if (completed) return <>{children}</>;
-
-    return (
-        <div className="relative overflow-hidden rounded-lg">
-            <div
-                className="absolute inset-0 flex items-center pl-4 bg-[rgb(var(--accent-rgb)/0.2)] rounded-lg pointer-events-none"
-                style={{ opacity: dragX > 4 ? 1 : 0 }}
-            >
-                <span className={`text-[10px] font-mono font-bold flex items-center gap-1.5 transition-transform ${pastThreshold ? "text-[rgb(var(--accent-light-rgb))] scale-110" : "text-[rgb(var(--accent-light-rgb)/0.7)]"}`}>
-                    <Check size={pastThreshold ? 16 : 12} />
-                    {pastThreshold ? "RELEASE TO LOG" : "SWIPE TO LOG →"}
-                </span>
-            </div>
-            <div {...handlers} style={{ transform: `translateX(${dragX}px)`, transition: swiping ? "none" : "transform 0.2s ease" }}>
-                {children}
-            </div>
-        </div>
-    );
-}
-
-/* ─── SPLIT-FLAP DIGIT ─── */
-function FlapDigit({ digit, delay = 0 }: { digit: string; delay?: number }) {
-    const isNum = /\d/.test(digit);
-    const [current, setCurrent] = useState(digit);
-    const [prev, setPrev] = useState(digit);
-    const [flipping, setFlipping] = useState(false);
-    const [highlight, setHighlight] = useState(false);
-    const prevRef = useRef(digit);
+    const [exercises, setExercises] = useState<Exercise[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [query, setQuery] = useState("");
+    const [segmentFilter, setSegmentFilter] = useState<string>("all");
+    const [equipmentFilter, setEquipmentFilter] = useState<string>("all");
+    const [disciplineFilter, setDisciplineFilter] = useState<string>("all");
+    const [showFilters, setShowFilters] = useState(false);
+    const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+    const [detailEx, setDetailEx] = useState<Exercise | null>(null);
+    const [showPlanBrowser, setShowPlanBrowser] = useState(false);
+    const [tab, setTab] = useState<"exercises" | "plans">("exercises");
 
     useEffect(() => {
-        if (digit === prevRef.current) return;
-        const old = prevRef.current;
-        prevRef.current = digit;
-        if (!isNum) { setCurrent(digit); setPrev(digit); return; }
-        const t0 = setTimeout(() => {
-            setPrev(old);
-            setFlipping(true);
-            setHighlight(true);
-            const t1 = setTimeout(() => { setCurrent(digit); }, 150);
-            const t2 = setTimeout(() => { setFlipping(false); setPrev(digit); }, 300);
-            const t3 = setTimeout(() => { setHighlight(false); }, 600);
-            return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-        }, delay);
-        return () => clearTimeout(t0);
-    }, [digit, delay, isNum]);
-
-    if (!isNum) return <span className="inline-flex items-center justify-center w-[0.3em] text-[var(--fg-15)]">{digit}</span>;
-
-    return (
-        <span className="flap-slot inline-flex relative" style={{ width: "0.65em", height: "1.3em" }}>
-            {/* Embossed track */}
-            <span className="absolute inset-0 rounded-[3px] flap-track" />
-            {/* Bottom half (new digit, revealed by flip) */}
-            <span className="absolute inset-0 flex items-center justify-center flap-digit-text" style={{ clipPath: "inset(50% 0 0 0)" }}>
-                {current}
-            </span>
-            {/* Top half (always current) */}
-            <span className={`absolute inset-0 flex items-center justify-center flap-digit-text ${highlight ? "flap-highlight" : ""}`} style={{ clipPath: "inset(0 0 50% 0)" }}>
-                {current}
-            </span>
-            {/* Flipping flap (top half of old digit, flips down) */}
-            {flipping && (
-                <span className="absolute inset-0 flex items-center justify-center flap-digit-text flap-flip" style={{ clipPath: "inset(0 0 50% 0)", transformOrigin: "bottom center" }}>
-                    {prev}
-                </span>
-            )}
-            {/* Center hairline */}
-            <span className="absolute left-[1px] right-[1px] top-1/2 h-px bg-[var(--fg-06)]" />
-        </span>
-    );
-}
-
-function FlapNumber({ value, suffix = "", accent = false }: { value: string; suffix?: string; accent?: boolean }) {
-    const chars = value.split("");
-    const len = chars.length;
-    return (
-        <span className={`inline-flex items-center font-mono font-bold tabular-nums gap-px ${accent ? "flap-accent" : ""}`}>
-            {chars.map((ch, i) => <FlapDigit key={`${len}-${i}`} digit={ch} delay={(len - 1 - i) * 60} />)}
-            {suffix && <span className="text-[0.4em] font-medium text-[var(--fg-25)] self-end mb-[0.15em] ml-1">{suffix}</span>}
-        </span>
-    );
-}
-
-function DeltaToast({ value }: { value: number }) {
-    const [show, setShow] = useState(true);
-    useEffect(() => { const t = setTimeout(() => setShow(false), 1500); return () => clearTimeout(t); }, []);
-    if (!show || value <= 0) return null;
-    return (
-        <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[11px] font-mono font-bold text-emerald-400 animate-delta-fly pointer-events-none whitespace-nowrap">
-            +{Math.round(value).toLocaleString()}
-        </span>
-    );
-}
-
-/* ─── MINI RUNE CIRCLE PROGRESS ─── */
-const RUNE_PATHS = [
-    "M8 16V4M8 4L3 0M8 4L13 0",      // Algiz
-    "M8 16V0M8 0L3 5M8 0L13 5",      // Tiwaz
-    "M3 0L13 8L3 16",                  // Kenaz
-    "M8 0L16 8L8 16L0 8Z",            // Ingwaz
-    "M0 0H16L0 16H16M0 0V16M16 0V16", // Dagaz
-    "M4 16V6L8 0L12 6V16M4 6H12",    // Othala
-    "M3 0L13 6L3 10L13 16",           // Sowilo
-    "M0 16V0L8 10L16 0V16",           // Ehwaz
-    "M3 16V0M3 0L13 4M3 7L13 11",    // Fehu
-    "M4 16V0M4 0H12L12 8H4",         // Wunjo
-    "M4 16V0H11L11 7H4M8 7L13 16",   // Raido
-    "M0 0L16 16M16 0L0 16",           // Gebo
-    "M3 0V16M13 0V16M3 8H13",        // Hagalaz
-    "M8 0V16M4 0H12M4 16H12",        // Isa
-    "M8 0V16M3 5L13 11",             // Nauthiz
-    "M4 16V0M4 4L12 8M4 8L12 12",   // Ansuz
-];
-
-function MiniRuneCircle({ completed, total, circleSize = 64 }: { completed: number; total: number; circleSize?: number }) {
-    const canvasRef = useRef<HTMLCanvasElement>(null);
-    const stateRef = useRef({
-        prevCompleted: completed,
-        flashRunes: new Map<number, number>(),
-        shimmerAngle: 0,
-        revealProgress: new Map<number, number>(),
-        globalRotation: 0,
-    });
-    const frameRef = useRef(0);
-    const accentRef = useRef("45, 212, 191");
-
-    const cTotal = Math.max(total, 1);
-    const cCompleted = Math.min(completed, cTotal);
-    const SIZE = circleSize;
-    const RADIUS = SIZE * 0.36;
-    const GLYPH_SIZE = Math.max(5, SIZE * 0.09);
-
-    const parsedPaths = useMemo(() => RUNE_PATHS.map((d) => {
-        const cmds: Array<{ type: string; args: number[] }> = [];
-        const re = /([MLHVZ])([^MLHVZ]*)/gi;
-        let m;
-        while ((m = re.exec(d)) !== null) {
-            const type = m[1].toUpperCase();
-            const args = m[2].trim().split(/[\s,]+/).filter(Boolean).map(Number);
-            cmds.push({ type, args });
+        async function load() {
+            const { data } = await supabase.from("exercises").select("*").order("name");
+            setExercises((data as Exercise[]) ?? []);
+            setLoading(false);
         }
-        return cmds;
-    }), []);
-
-    function drawRune(ctx: CanvasRenderingContext2D, cmds: typeof parsedPaths[0], cx: number, cy: number, glyphSize: number, drawFraction = 1) {
-        const scale = glyphSize / 16;
-        const ox = cx - glyphSize / 2;
-        const oy = cy - glyphSize / 2;
-        let curX = 0, curY = 0;
-        const segments: Array<[number, number, number, number]> = [];
-        for (const { type, args } of cmds) {
-            switch (type) {
-                case "M": curX = args[0]; curY = args[1]; break;
-                case "L": segments.push([curX, curY, args[0], args[1]]); curX = args[0]; curY = args[1]; break;
-                case "H": segments.push([curX, curY, args[0], curY]); curX = args[0]; break;
-                case "V": segments.push([curX, curY, curX, args[0]]); curY = args[0]; break;
-                case "Z": break;
-            }
-        }
-        const totalSegs = segments.length;
-        const segsToShow = Math.ceil(totalSegs * drawFraction);
-        ctx.beginPath();
-        for (let si = 0; si < segsToShow; si++) {
-            const [x1, y1, x2, y2] = segments[si];
-            const sx1 = ox + x1 * scale, sy1 = oy + y1 * scale;
-            const sx2 = ox + x2 * scale, sy2 = oy + y2 * scale;
-            if (si === segsToShow - 1 && drawFraction < 1) {
-                const segFrac = (drawFraction * totalSegs) - si;
-                ctx.moveTo(sx1, sy1);
-                ctx.lineTo(sx1 + (sx2 - sx1) * segFrac, sy1 + (sy2 - sy1) * segFrac);
-            } else {
-                ctx.moveTo(sx1, sy1);
-                ctx.lineTo(sx2, sy2);
-            }
-        }
-        ctx.stroke();
-    }
-
-    const getAngle = useCallback((i: number, rot: number) => (i / cTotal) * Math.PI * 2 - Math.PI / 2 + rot, [cTotal]);
-
-    useEffect(() => {
-        const st = stateRef.current;
-        if (completed > st.prevCompleted) {
-            const prev = st.prevCompleted;
-            for (let i = prev; i < completed; i++) {
-                st.flashRunes.set(i, 0);
-                st.revealProgress.set(i, 0);
-            }
-            st.prevCompleted = completed;
-        } else {
-            st.prevCompleted = completed;
-        }
-    }, [completed]);
-
-    useEffect(() => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-
-        accentRef.current = (getComputedStyle(document.documentElement).getPropertyValue("--accent-rgb").trim() || "45 212 191").replace(/\s+/g, ", ");
-
-        let lastTime = 0;
-        const loop = (time: number) => {
-            const dt = Math.min((time - lastTime) / 1000, 0.05);
-            lastTime = time;
-            const st = stateRef.current;
-            const accent = accentRef.current;
-
-            const dpr = window.devicePixelRatio || 2;
-            canvas.width = SIZE * dpr;
-            canvas.height = SIZE * dpr;
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            ctx.clearRect(0, 0, SIZE, SIZE);
-
-            const mx = SIZE / 2;
-            const my = SIZE / 2;
-
-            // #7: Slow continuous rotation (~1 deg/sec)
-            st.globalRotation += dt * 0.017;
-            const rot = st.globalRotation;
-
-            // Shimmer rotates around the circle (faster than base rotation)
-            st.shimmerAngle = (st.shimmerAngle + dt * 1.2) % (Math.PI * 2);
-
-            // Update flash timers (white → accent fade)
-            for (const [idx, prog] of st.flashRunes) {
-                const np = prog + dt * 2;
-                if (np >= 1) st.flashRunes.delete(idx);
-                else st.flashRunes.set(idx, np);
-            }
-
-            // Update reveal
-            for (const [idx, prog] of st.revealProgress) {
-                const np = prog + dt * 2.5;
-                if (np >= 1) { st.revealProgress.set(idx, 1); setTimeout(() => st.revealProgress.delete(idx), 100); }
-                else st.revealProgress.set(idx, np);
-            }
-
-            // --- DRAW ---
-            const pulsePhase = (time / 1000) % 2.5 / 2.5;
-            const pulseVal = 0.5 + Math.sin(pulsePhase * Math.PI * 2) * 0.5;
-
-            // Ambient center glow
-            if (cCompleted > 0) {
-                const fraction = cCompleted / cTotal;
-                const cGrad = ctx.createRadialGradient(mx, my, 0, mx, my, RADIUS * 0.55);
-                cGrad.addColorStop(0, `rgba(${accent}, ${0.04 + fraction * 0.06})`);
-                cGrad.addColorStop(1, `rgba(${accent}, 0)`);
-                ctx.fillStyle = cGrad;
-                ctx.beginPath();
-                ctx.arc(mx, my, RADIUS * 0.55, 0, Math.PI * 2);
-                ctx.fill();
-            }
-
-            // Background dashed circle track (no progress arc — #1)
-            ctx.setLineDash([2, 6]);
-            ctx.strokeStyle = `rgba(${accent}, 0.06)`;
-            ctx.lineWidth = 0.8;
-            ctx.beginPath();
-            ctx.arc(mx, my, RADIUS, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.setLineDash([]);
-
-            // Glyphs on circle
-            for (let i = 0; i < cTotal; i++) {
-                const a = getAngle(i, rot);
-                const gx = mx + Math.cos(a) * RADIUS;
-                const gy = my + Math.sin(a) * RADIUS;
-                const isActive = i < cCompleted;
-                const isLatest = i === cCompleted - 1;
-                const runeIdx = i % parsedPaths.length;
-                const isRevealing = st.revealProgress.has(i);
-                const isFlashing = st.flashRunes.has(i);
-
-                ctx.save();
-                ctx.lineCap = "round";
-                ctx.lineJoin = "round";
-
-                // #6: Dormant = faint rune outline instead of dot
-                if (!isActive) {
-                    ctx.strokeStyle = `rgba(${accent}, 0.07)`;
-                    ctx.lineWidth = 0.8;
-                    drawRune(ctx, parsedPaths[runeIdx], gx, gy, GLYPH_SIZE);
-                    ctx.restore();
-                    continue;
-                }
-
-                // Glyph shimmer — angular distance from shimmer position
-                let angleDist = Math.abs(a - (st.shimmerAngle - Math.PI / 2 + rot));
-                if (angleDist > Math.PI) angleDist = Math.PI * 2 - angleDist;
-                const shimmerBoost = angleDist < 0.6 ? (1 - angleDist / 0.6) * 0.4 : 0;
-                const intensity = isLatest ? 1 : Math.min(1, (0.25 + (i / Math.max(cCompleted - 1, 1)) * 0.55) + shimmerBoost);
-
-                // Underglow pool
-                const uR = isLatest ? GLYPH_SIZE * 1.8 : GLYPH_SIZE * 1.0;
-                const uAlpha = isLatest ? 0.15 : 0.03 + (i / Math.max(cCompleted, 1)) * 0.06;
-                const uGrad = ctx.createRadialGradient(gx, gy, 0, gx, gy, uR);
-                uGrad.addColorStop(0, `rgba(${accent}, ${uAlpha})`);
-                uGrad.addColorStop(1, `rgba(${accent}, 0)`);
-                ctx.fillStyle = uGrad;
-                ctx.beginPath();
-                ctx.arc(gx, gy, uR, 0, Math.PI * 2);
-                ctx.fill();
-
-                // #5: Flash-on-reveal — starts white, fades to accent
-                if (isFlashing) {
-                    const fp = st.flashRunes.get(i)!;
-                    const flashR = GLYPH_SIZE * (0.8 + fp * 1.2);
-                    const flashAlpha = (1 - fp) * 0.5;
-                    const whiteAmount = Math.max(0, 1 - fp * 2);
-                    ctx.shadowColor = `rgba(255, 255, 255, ${flashAlpha * whiteAmount})`;
-                    ctx.shadowBlur = 16;
-                    const fg = ctx.createRadialGradient(gx, gy, 0, gx, gy, flashR);
-                    fg.addColorStop(0, `rgba(${whiteAmount > 0.5 ? "255, 255, 255" : accent}, ${flashAlpha})`);
-                    fg.addColorStop(1, `rgba(${accent}, 0)`);
-                    ctx.fillStyle = fg;
-                    ctx.beginPath();
-                    ctx.arc(gx, gy, flashR, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.shadowBlur = 0;
-                }
-
-                // Breathing halo on latest
-                if (isLatest && !isFlashing) {
-                    const haloR = GLYPH_SIZE * (0.9 + pulseVal * 0.5);
-                    const haloAlpha = 0.06 + pulseVal * 0.1;
-                    const hg = ctx.createRadialGradient(gx, gy, 0, gx, gy, haloR);
-                    hg.addColorStop(0, `rgba(${accent}, ${haloAlpha})`);
-                    hg.addColorStop(1, `rgba(${accent}, 0)`);
-                    ctx.fillStyle = hg;
-                    ctx.beginPath();
-                    ctx.arc(gx, gy, haloR, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-
-                // Draw the rune glyph
-                const drawFrac = isRevealing ? st.revealProgress.get(i)! : 1;
-                // #5: Flashing runes start white then transition to accent
-                const flashProg = isFlashing ? st.flashRunes.get(i)! : 0;
-                const strokeColor = isFlashing
-                    ? (flashProg < 0.4
-                        ? `rgba(255, 255, 255, ${1 - flashProg})`
-                        : `rgba(${accent}, ${0.5 + (flashProg - 0.4) * 0.83})`)
-                    : isLatest
-                        ? `rgba(${accent}, ${0.7 + pulseVal * 0.3})`
-                        : `rgba(${accent}, ${intensity})`;
-
-                ctx.strokeStyle = strokeColor;
-                ctx.lineWidth = isLatest ? 1.8 : 1.2;
-
-                if (isLatest || isFlashing) {
-                    ctx.shadowColor = isFlashing ? `rgba(255, 255, 255, ${0.6 * (1 - flashProg)})` : `rgba(${accent}, ${0.3 + pulseVal * 0.4})`;
-                    ctx.shadowBlur = isFlashing ? 12 : 6 + pulseVal * 6;
-                }
-
-                drawRune(ctx, parsedPaths[runeIdx], gx, gy, GLYPH_SIZE, drawFrac);
-
-                // Extra glow pass on latest
-                if (isLatest && !isFlashing) {
-                    ctx.strokeStyle = `rgba(${accent}, ${0.12 + pulseVal * 0.18})`;
-                    ctx.lineWidth = 2.5;
-                    ctx.shadowBlur = 10 + pulseVal * 8;
-                    drawRune(ctx, parsedPaths[runeIdx], gx, gy, GLYPH_SIZE, drawFrac);
-                }
-
-                ctx.restore();
-            }
-
-            // #4: Percentage text in center
-            const pct = cTotal > 0 ? Math.round((cCompleted / cTotal) * 100) : 0;
-            const fontSize = Math.max(9, SIZE * 0.15);
-            ctx.font = `700 ${fontSize}px "JetBrains Mono", monospace`;
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillStyle = `rgba(${accent}, ${0.5 + pulseVal * 0.2})`;
-            ctx.shadowColor = `rgba(${accent}, 0.3)`;
-            ctx.shadowBlur = 4;
-            ctx.fillText(`${pct}%`, mx, my);
-            ctx.shadowBlur = 0;
-
-            frameRef.current = requestAnimationFrame(loop);
-        };
-        frameRef.current = requestAnimationFrame(loop);
-        return () => cancelAnimationFrame(frameRef.current);
-    }, [cCompleted, cTotal, parsedPaths, getAngle, SIZE, RADIUS, GLYPH_SIZE]);
-
-    return (
-        <div className="flex justify-center">
-            <canvas ref={canvasRef} style={{ width: `${SIZE}px`, height: `${SIZE}px` }} />
-        </div>
-    );
-}
-
-function ReportRuneLoader({ progress }: { progress: number }) {
-    const canvasRef = useRef<HTMLCanvasElement>(null);
-    const startRef = useRef(0);
-    const frameRef = useRef(0);
-    const accentRef = useRef("45, 212, 191");
-    const [textVisible, setTextVisible] = useState(false);
-    const textTimerRef = useRef(false);
-    const displayPctRef = useRef(0);
-    const particleSpeedsRef = useRef<number[]>([]);
-    const orbitParticlesRef = useRef<Array<{ angle: number; speed: number; dist: number; size: number }>>([]);
-
-    const SIZE = 200;
-    const RADIUS = SIZE * 0.36;
-    const GLYPH_SIZE = SIZE * 0.09;
-    const RUNE_COUNT = 16;
-
-    if (particleSpeedsRef.current.length === 0) {
-        for (let i = 0; i < RUNE_COUNT; i++) {
-            particleSpeedsRef.current.push(0.4 + Math.random() * 0.25);
-        }
-    }
-    if (orbitParticlesRef.current.length === 0) {
-        for (let i = 0; i < 12; i++) {
-            orbitParticlesRef.current.push({
-                angle: Math.random() * Math.PI * 2,
-                speed: 0.15 + Math.random() * 0.25,
-                dist: RADIUS * (0.85 + Math.random() * 0.1),
-                size: 0.5 + Math.random() * 1.0,
-            });
-        }
-    }
-
-    const parsedPaths = useMemo(() => RUNE_PATHS.map((d) => {
-        const cmds: Array<{ type: string; args: number[] }> = [];
-        const re = /([MLHVZ])([^MLHVZ]*)/gi;
-        let m;
-        while ((m = re.exec(d)) !== null) {
-            const type = m[1].toUpperCase();
-            const args = m[2].trim().split(/[\s,]+/).filter(Boolean).map(Number);
-            cmds.push({ type, args });
-        }
-        return cmds;
-    }), []);
-
-    function drawRune(ctx: CanvasRenderingContext2D, cmds: typeof parsedPaths[0], cx: number, cy: number, glyphSize: number, drawFraction = 1) {
-        const scale = glyphSize / 16;
-        const ox = cx - glyphSize / 2;
-        const oy = cy - glyphSize / 2;
-        let curX = 0, curY = 0;
-        const segments: Array<[number, number, number, number]> = [];
-        for (const { type, args } of cmds) {
-            switch (type) {
-                case "M": curX = args[0]; curY = args[1]; break;
-                case "L": segments.push([curX, curY, args[0], args[1]]); curX = args[0]; curY = args[1]; break;
-                case "H": segments.push([curX, curY, args[0], curY]); curX = args[0]; break;
-                case "V": segments.push([curX, curY, curX, args[0]]); curY = args[0]; break;
-                case "Z": break;
-            }
-        }
-        const totalSegs = segments.length;
-        const segsToShow = Math.ceil(totalSegs * drawFraction);
-        ctx.beginPath();
-        for (let si = 0; si < segsToShow; si++) {
-            const [x1, y1, x2, y2] = segments[si];
-            const sx1 = ox + x1 * scale, sy1 = oy + y1 * scale;
-            const sx2 = ox + x2 * scale, sy2 = oy + y2 * scale;
-            if (si === segsToShow - 1 && drawFraction < 1) {
-                const segFrac = (drawFraction * totalSegs) - si;
-                ctx.moveTo(sx1, sy1);
-                ctx.lineTo(sx1 + (sx2 - sx1) * segFrac, sy1 + (sy2 - sy1) * segFrac);
-            } else {
-                ctx.moveTo(sx1, sy1);
-                ctx.lineTo(sx2, sy2);
-            }
-        }
-        ctx.stroke();
-    }
-
-    useEffect(() => {
-        if (!textTimerRef.current) {
-            textTimerRef.current = true;
-            setTimeout(() => setTextVisible(true), 500);
-        }
+        load();
     }, []);
 
-    useEffect(() => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
+    const segments = useMemo(() => {
+        const s = new Set(exercises.map((ex) => ex.body_segment || "Other"));
+        return SEGMENT_ORDER.filter((seg) => s.has(seg));
+    }, [exercises]);
 
-        accentRef.current = (getComputedStyle(document.documentElement).getPropertyValue("--accent-rgb").trim() || "45 212 191").replace(/\s+/g, ", ");
-
-        let lastTime = 0;
-        const loop = (time: number) => {
-            if (!startRef.current) { startRef.current = time; lastTime = time; }
-            const dt = Math.min((time - lastTime) / 1000, 0.05);
-            lastTime = time;
-            const elapsed = (time - startRef.current) / 1000;
-            const accent = accentRef.current;
-
-            const dpr = window.devicePixelRatio || 2;
-            canvas.width = SIZE * dpr;
-            canvas.height = SIZE * dpr;
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            ctx.clearRect(0, 0, SIZE, SIZE);
-
-            const mx = SIZE / 2;
-            const my = SIZE / 2;
-
-            // Real progress drives the sweep — progress is 0-100 from hook
-            const realProgress = progress / 100;
-            // Sweep is driven by real progress, not time
-            const fadeInEnd = 0.35;
-            const fadeIn = Math.min(1, elapsed / fadeInEnd);
-
-            // Smooth the sweep to avoid jerky jumps between progress stages
-            const sweepTarget = realProgress;
-            const prevSweep = displayPctRef.current / 100;
-            const sweepProgress = prevSweep + (sweepTarget - prevSweep) * Math.min(1, dt * 3);
-
-            const sweepAngle = -Math.PI / 2 + sweepProgress * Math.PI * 2;
-            const litCount = Math.floor(sweepProgress * RUNE_COUNT);
-            const isComplete = progress >= 100;
-
-            // Smooth percentage counter
-            displayPctRef.current += (progress - displayPctRef.current) * Math.min(1, dt * 5);
-            const pct = Math.min(100, Math.round(displayPctRef.current));
-
-            // Breathing pulse after complete
-            const completeTime = isComplete ? elapsed : 0;
-            const breathPhase = isComplete ? (completeTime / 2.5) % 1 : 0;
-            const breathVal = 0.5 + Math.sin(breathPhase * Math.PI * 2) * 0.5;
-
-            // Slow rotation after complete
-            const completeRot = isComplete ? completeTime * 0.0087 : 0;
-
-            // ── Background radial gradient ──
-            const bgRadius = RADIUS * (0.8 + sweepProgress * 0.8);
-            const bgAlpha = sweepProgress * 0.08;
-            if (bgAlpha > 0) {
-                const bgGrad = ctx.createRadialGradient(mx, my, 0, mx, my, bgRadius);
-                bgGrad.addColorStop(0, `rgba(${accent}, ${bgAlpha})`);
-                bgGrad.addColorStop(0.6, `rgba(${accent}, ${bgAlpha * 0.3})`);
-                bgGrad.addColorStop(1, `rgba(${accent}, 0)`);
-                ctx.fillStyle = bgGrad;
-                ctx.beginPath();
-                ctx.arc(mx, my, bgRadius, 0, Math.PI * 2);
-                ctx.fill();
-            }
-
-            // ── Ripple pulses ──
-            const ripples = [
-                { start: 0, dur: 0.8, alpha: 0.12 },
-                { start: 0.6, dur: 0.7, alpha: 0.08 },
-            ];
-            for (const rip of ripples) {
-                const rt = (elapsed - rip.start) / rip.dur;
-                if (rt > 0 && rt < 1) {
-                    const rippleR = RADIUS * 1.2 * rt;
-                    const rippleA = (1 - rt) * rip.alpha;
-                    ctx.strokeStyle = `rgba(${accent}, ${rippleA})`;
-                    ctx.lineWidth = 1.5 * (1 - rt);
-                    ctx.beginPath();
-                    ctx.arc(mx, my, rippleR, 0, Math.PI * 2);
-                    ctx.stroke();
-                }
-            }
-
-            // ── "Ready" flash when hitting 100% ──
-            if (isComplete && completeTime < 0.4) {
-                const flashReadyT = completeTime / 0.4;
-                const flashR = RADIUS * (0.3 + flashReadyT * 1.0);
-                const flashA = (1 - flashReadyT) * 0.35;
-                ctx.strokeStyle = `rgba(255, 255, 255, ${flashA * 0.5})`;
-                ctx.lineWidth = 2 * (1 - flashReadyT);
-                ctx.beginPath();
-                ctx.arc(mx, my, flashR, 0, Math.PI * 2);
-                ctx.stroke();
-                const fg = ctx.createRadialGradient(mx, my, 0, mx, my, flashR);
-                fg.addColorStop(0, `rgba(255, 255, 255, ${flashA * 0.3})`);
-                fg.addColorStop(0.5, `rgba(${accent}, ${flashA * 0.15})`);
-                fg.addColorStop(1, `rgba(${accent}, 0)`);
-                ctx.fillStyle = fg;
-                ctx.beginPath();
-                ctx.arc(mx, my, flashR, 0, Math.PI * 2);
-                ctx.fill();
-            }
-
-            // ── #1: Orbiting micro-particles ──
-            for (const op of orbitParticlesRef.current) {
-                op.angle += op.speed * dt;
-                const opx = mx + Math.cos(op.angle) * op.dist;
-                const opy = my + Math.sin(op.angle) * op.dist;
-                const opAlpha = 0.08 + sweepProgress * 0.12;
-                ctx.fillStyle = `rgba(${accent}, ${opAlpha})`;
-                ctx.beginPath();
-                ctx.arc(opx, opy, op.size, 0, Math.PI * 2);
-                ctx.fill();
-            }
-
-            // ── Circle track: dashed → solid ──
-            ctx.setLineDash([2, 6]);
-            ctx.strokeStyle = `rgba(${accent}, ${0.06 * fadeIn})`;
-            ctx.lineWidth = 0.8;
-            ctx.beginPath();
-            ctx.arc(mx, my, RADIUS, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.setLineDash([]);
-
-            // Solid arc + #3: afterglow (brighter near comet head)
-            if (sweepProgress > 0) {
-                const arcStart = -Math.PI / 2 + completeRot;
-                const arcEnd = arcStart + sweepProgress * Math.PI * 2;
-                ctx.strokeStyle = `rgba(${accent}, ${isComplete ? 0.25 + breathVal * 0.1 : 0.15})`;
-                ctx.lineWidth = 1.2;
-                ctx.beginPath();
-                ctx.arc(mx, my, RADIUS, arcStart, arcEnd);
-                ctx.stroke();
-
-                // Afterglow: brighter arc near the comet head
-                if (!isComplete && sweepProgress > 0.05) {
-                    const glowSpan = 0.15;
-                    const glowStart = arcEnd - glowSpan * Math.PI * 2;
-                    ctx.strokeStyle = `rgba(${accent}, 0.35)`;
-                    ctx.lineWidth = 1.8;
-                    ctx.beginPath();
-                    ctx.arc(mx, my, RADIUS, Math.max(arcStart, glowStart), arcEnd);
-                    ctx.stroke();
-                }
-            }
-
-            // ── Energy sweep comet ──
-            if (sweepProgress > 0.01 && !isComplete) {
-                const headX = mx + Math.cos(sweepAngle) * RADIUS;
-                const headY = my + Math.sin(sweepAngle) * RADIUS;
-
-                const tailLen = 0.5;
-                const tailSamples = 16;
-                for (let t = 0; t < tailSamples; t++) {
-                    const f = t / tailSamples;
-                    const tailAngle = sweepAngle - f * tailLen;
-                    const tailX = mx + Math.cos(tailAngle) * RADIUS;
-                    const tailY = my + Math.sin(tailAngle) * RADIUS;
-                    const tailAlpha = (1 - f) * (1 - f) * 0.18;
-                    const tailR = GLYPH_SIZE * (1.8 - f * 0.8);
-                    const tg = ctx.createRadialGradient(tailX, tailY, 0, tailX, tailY, tailR);
-                    tg.addColorStop(0, `rgba(${accent}, ${tailAlpha})`);
-                    tg.addColorStop(1, `rgba(${accent}, 0)`);
-                    ctx.fillStyle = tg;
-                    ctx.beginPath();
-                    ctx.arc(tailX, tailY, tailR, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-
-                const hGrad = ctx.createRadialGradient(headX, headY, 0, headX, headY, GLYPH_SIZE * 2.5);
-                hGrad.addColorStop(0, `rgba(255, 255, 255, 0.65)`);
-                hGrad.addColorStop(0.25, `rgba(${accent}, 0.35)`);
-                hGrad.addColorStop(1, `rgba(${accent}, 0)`);
-                ctx.fillStyle = hGrad;
-                ctx.beginPath();
-                ctx.arc(headX, headY, GLYPH_SIZE * 2.5, 0, Math.PI * 2);
-                ctx.fill();
-            }
-
-            // ── Particles flying to center ──
-            for (let i = 0; i < RUNE_COUNT; i++) {
-                const runeAngle = (i / RUNE_COUNT) * Math.PI * 2 - Math.PI / 2 + completeRot;
-                const igniteFrac = i / RUNE_COUNT;
-                const ignited = sweepProgress >= igniteFrac;
-                if (!ignited) continue;
-                const sinceIgnite = (sweepProgress - igniteFrac) * 3;
-                const pDur = particleSpeedsRef.current[i];
-                if (sinceIgnite > 0 && sinceIgnite < pDur) {
-                    const p = sinceIgnite / pDur;
-                    const eased = 1 - Math.pow(1 - p, 2);
-                    const rx = mx + Math.cos(runeAngle) * RADIUS;
-                    const ry = my + Math.sin(runeAngle) * RADIUS;
-                    const px = rx + (mx - rx) * eased;
-                    const py = ry + (my - ry) * eased;
-                    const pAlpha = (1 - p) * 0.55;
-                    const pSize = 2.0 * (1 - p);
-                    ctx.fillStyle = `rgba(${accent}, ${pAlpha})`;
-                    ctx.beginPath();
-                    ctx.arc(px, py, pSize, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.strokeStyle = `rgba(${accent}, ${pAlpha * 0.25})`;
-                    ctx.lineWidth = 0.5;
-                    ctx.beginPath();
-                    ctx.moveTo(rx, ry);
-                    ctx.lineTo(px, py);
-                    ctx.stroke();
-                }
-            }
-
-            // ── #2: Shimmer wave after all runes lit ──
-            const shimmerAngle = isComplete ? (elapsed * 1.5) % (Math.PI * 2) : 0;
-
-            // ── Rune glyphs ──
-            for (let i = 0; i < RUNE_COUNT; i++) {
-                const runeAngle = (i / RUNE_COUNT) * Math.PI * 2 - Math.PI / 2 + completeRot;
-                const gx = mx + Math.cos(runeAngle) * RADIUS;
-                const gy = my + Math.sin(runeAngle) * RADIUS;
-                const runeIdx = i % parsedPaths.length;
-                const igniteFrac = i / RUNE_COUNT;
-                const isLit = sweepProgress >= igniteFrac || isComplete;
-                const sinceIgnite = isLit ? (sweepProgress - igniteFrac) * 3 : 0;
-
-                ctx.save();
-                ctx.lineCap = "round";
-                ctx.lineJoin = "round";
-
-                if (!isLit) {
-                    // #5: Dormant runes pulse faintly before sweep reaches them
-                    const distToSweep = igniteFrac - sweepProgress;
-                    const anticipation = distToSweep < 0.15 && distToSweep > 0
-                        ? 0.04 + Math.sin(elapsed * 4) * 0.03
-                        : 0;
-                    ctx.strokeStyle = `rgba(${accent}, ${(0.07 + anticipation) * fadeIn})`;
-                    ctx.lineWidth = 0.8;
-                    drawRune(ctx, parsedPaths[runeIdx], gx, gy, GLYPH_SIZE);
-                    ctx.restore();
-                    continue;
-                }
-
-                const flashDur = 0.6;
-                const flashProgress = Math.min(1, sinceIgnite / flashDur);
-                const flashEased = 1 - Math.pow(1 - flashProgress, 2);
-
-                // Underglow pool
-                const uR = GLYPH_SIZE * (1.0 + (1 - flashEased) * 1.0);
-                const uAlpha = flashEased < 1 ? 0.18 * (1 - flashEased * 0.6) : 0.05;
-                const uGrad = ctx.createRadialGradient(gx, gy, 0, gx, gy, uR);
-                uGrad.addColorStop(0, `rgba(${flashEased < 0.25 ? "255, 255, 255" : accent}, ${uAlpha})`);
-                uGrad.addColorStop(1, `rgba(${accent}, 0)`);
-                ctx.fillStyle = uGrad;
-                ctx.beginPath();
-                ctx.arc(gx, gy, uR, 0, Math.PI * 2);
-                ctx.fill();
-
-                // Shimmer boost for completed state
-                let shimmerBoost = 0;
-                if (isComplete) {
-                    let angleDist = Math.abs(runeAngle - shimmerAngle);
-                    if (angleDist > Math.PI) angleDist = Math.PI * 2 - angleDist;
-                    shimmerBoost = angleDist < 0.5 ? (1 - angleDist / 0.5) * 0.3 : 0;
-                }
-
-                const whiteAmount = Math.max(0, 1 - flashEased * 2.5);
-                const runeAlpha = isComplete
-                    ? 0.6 + breathVal * 0.2 + shimmerBoost
-                    : 0.35 + flashEased * 0.45;
-                ctx.strokeStyle = whiteAmount > 0.3
-                    ? `rgba(255, 255, 255, ${0.8 * whiteAmount + runeAlpha * (1 - whiteAmount)})`
-                    : `rgba(${accent}, ${runeAlpha})`;
-                ctx.lineWidth = flashEased < 0.15 ? 2.2 : 1.2 + (1 - flashEased) * 0.3;
-
-                if (flashEased < 0.4) {
-                    ctx.shadowColor = `rgba(255, 255, 255, ${0.5 * (1 - flashEased * 2.5)})`;
-                    ctx.shadowBlur = 12 * (1 - flashEased * 2.5);
-                } else if (isComplete) {
-                    ctx.shadowColor = `rgba(${accent}, ${0.15 + breathVal * 0.1 + shimmerBoost * 0.3})`;
-                    ctx.shadowBlur = 3 + breathVal * 3 + shimmerBoost * 6;
-                }
-
-                const revealFrac = Math.min(1, sinceIgnite / 0.3);
-                drawRune(ctx, parsedPaths[runeIdx], gx, gy, GLYPH_SIZE, revealFrac);
-                ctx.restore();
-            }
-
-            // ── Center percentage + #4: scale-up + #6: "SCROLL" label ──
-            // #4: Scale from 0.92 to 1.0 as approaching 100
-            const scaleVal = 0.92 + (pct / 100) * 0.08;
-            const fontSize = SIZE * 0.16 * scaleVal;
-            const centerGlow = isComplete ? 0.15 + breathVal * 0.1 : sweepProgress * 0.12;
-
-            if (centerGlow > 0) {
-                const cGrad = ctx.createRadialGradient(mx, my, 0, mx, my, RADIUS * 0.4);
-                cGrad.addColorStop(0, `rgba(${accent}, ${centerGlow})`);
-                cGrad.addColorStop(1, `rgba(${accent}, 0)`);
-                ctx.fillStyle = cGrad;
-                ctx.beginPath();
-                ctx.arc(mx, my, RADIUS * 0.4, 0, Math.PI * 2);
-                ctx.fill();
-            }
-
-            ctx.font = `700 ${fontSize}px "JetBrains Mono", monospace`;
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            const textAlpha = isComplete ? 0.7 + breathVal * 0.2 : 0.4 + sweepProgress * 0.3;
-            ctx.fillStyle = `rgba(${accent}, ${textAlpha})`;
-            ctx.shadowColor = `rgba(${accent}, ${isComplete ? 0.4 + breathVal * 0.2 : sweepProgress * 0.3})`;
-            ctx.shadowBlur = isComplete ? 6 + breathVal * 4 : 4;
-            ctx.fillText(`${pct}%`, mx, my - 5);
-            ctx.shadowBlur = 0;
-
-            // #6: "SCROLL" sub-label
-            const subSize = SIZE * 0.04;
-            ctx.font = `600 ${subSize}px "JetBrains Mono", monospace`;
-            ctx.fillStyle = `rgba(${accent}, ${(isComplete ? 0.35 + breathVal * 0.1 : sweepProgress * 0.25)})`;
-            ctx.letterSpacing = "2px";
-            ctx.fillText("SCROLL", mx, my + fontSize * 0.55);
-
-            frameRef.current = requestAnimationFrame(loop);
-        };
-        frameRef.current = requestAnimationFrame(loop);
-        return () => cancelAnimationFrame(frameRef.current);
-    }, [parsedPaths, SIZE, RADIUS, GLYPH_SIZE, progress]);
-
-    return (
-        <div className="flex flex-col items-center gap-8">
-            <canvas ref={canvasRef} style={{ width: `${SIZE}px`, height: `${SIZE}px` }} />
-            <div className={`flex flex-col items-center gap-2 transition-opacity duration-500 ${textVisible ? "opacity-100" : "opacity-0"}`}>
-                <p className="text-sm font-semibold tracking-[0.3em] text-[rgb(var(--accent-light-rgb))] uppercase">Generating Report</p>
-                <p className="text-xs text-[var(--fg-30)]">Inscribing your scroll...</p>
-            </div>
-        </div>
+    const equipmentTypes = useMemo(
+        () => Array.from(new Set(exercises.map((ex) => ex.equipment).filter(Boolean))).sort(),
+        [exercises],
     );
-}
 
-function RotationCard({ exercises, onSwap, currentExerciseIds }: {
-    exercises: Array<{ id: string; name: string; body_segment: string; lastDone: string; daysSince: number }>;
-    onSwap: (exerciseId: string, name: string) => void;
-    currentExerciseIds: Set<string>;
-}) {
-    const [expanded, setExpanded] = useState(false);
-    const grouped = useMemo(() => {
-        const map = new Map<string, typeof exercises>();
+    const disciplineCounts = useMemo(() => {
+        const counts: Record<string, number> = {};
         for (const ex of exercises) {
+            const d = ex.discipline || "strength";
+            counts[d] = (counts[d] || 0) + 1;
+        }
+        return counts;
+    }, [exercises]);
+
+    const filtered = useMemo(() => {
+        const q = query.toLowerCase().trim();
+        return exercises.filter((ex) => {
+            if (segmentFilter !== "all" && ex.body_segment !== segmentFilter) return false;
+            if (equipmentFilter !== "all" && ex.equipment !== equipmentFilter) return false;
+            if (disciplineFilter !== "all" && (ex.discipline || "strength") !== disciplineFilter) return false;
+            if (q && !ex.name.toLowerCase().includes(q) && !ex.primary_muscle?.toLowerCase().includes(q) && !ex.equipment?.toLowerCase().includes(q)) return false;
+            return true;
+        });
+    }, [exercises, query, segmentFilter, equipmentFilter, disciplineFilter]);
+
+    const grouped = useMemo(() => {
+        const map = new Map<string, Exercise[]>();
+        for (const ex of filtered) {
             const seg = ex.body_segment || "Other";
             if (!map.has(seg)) map.set(seg, []);
             map.get(seg)!.push(ex);
         }
-        return Array.from(map.entries()).sort((a, b) => b[1][0].daysSince - a[1][0].daysSince);
-    }, [exercises]);
+        return SEGMENT_ORDER.filter((s) => map.has(s)).map((s) => ({ segment: s, items: map.get(s)! }));
+    }, [filtered]);
 
-    const preview = exercises.slice(0, 3);
-
-    return (
-        <div className="rounded-2xl border border-[var(--fg-06)] bg-[var(--fg-02)] overflow-hidden">
-            <button onClick={() => setExpanded(!expanded)} className="w-full flex items-center gap-3 px-4 py-3 text-left">
-                <RefreshCw size={14} className="text-[rgb(var(--accent-rgb)/0.5)] shrink-0" />
-                <div className="flex-1 min-w-0">
-                    <p className="text-[10px] font-mono tracking-widest text-[var(--fg-25)]">ROTATE BACK IN</p>
-                    <p className="text-[9px] text-[var(--fg-20)] mt-0.5 truncate">
-                        {exercises.length} exercise{exercises.length !== 1 ? "s" : ""} not done in 3+ weeks
-                    </p>
-                </div>
-                {expanded ? <ChevronDown size={14} className="text-[var(--fg-15)] shrink-0" /> : <ChevronRight size={14} className="text-[var(--fg-15)] shrink-0" />}
-            </button>
-
-            {!expanded && (
-                <div className="px-4 pb-3 flex gap-1.5 flex-wrap">
-                    {preview.map(ex => (
-                        <span key={ex.id} className="text-[8px] font-mono px-2 py-0.5 rounded-full bg-[var(--fg-04)] text-[var(--fg-30)]">
-                            {ex.name} · {ex.daysSince}d
-                        </span>
-                    ))}
-                    {exercises.length > 3 && (
-                        <span className="text-[8px] font-mono px-2 py-0.5 rounded-full bg-[var(--fg-04)] text-[var(--fg-15)]">
-                            +{exercises.length - 3}
-                        </span>
-                    )}
-                </div>
-            )}
-
-            {expanded && (
-                <div className="px-4 pb-3 space-y-3">
-                    {grouped.map(([segment, exs]) => (
-                        <div key={segment}>
-                            <p className="text-[7px] font-mono tracking-widest text-[var(--fg-15)] mb-1.5">{segment.toUpperCase()}</p>
-                            <div className="space-y-1">
-                                {exs.map(ex => {
-                                    const alreadyInPlan = currentExerciseIds.has(ex.id);
-                                    return (
-                                        <div key={ex.id} className="flex items-center gap-2 rounded-lg bg-[var(--fg-03)] px-3 py-2">
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-[10px] font-medium text-[var(--fg-50)] truncate">{ex.name}</p>
-                                                <p className="text-[8px] font-mono text-[var(--fg-20)]">{ex.daysSince} days ago</p>
-                                            </div>
-                                            {alreadyInPlan ? (
-                                                <span className="text-[8px] font-mono text-[var(--fg-15)] px-2 py-1">In plan</span>
-                                            ) : (
-                                                <button
-                                                    onClick={() => onSwap(ex.id, ex.name)}
-                                                    className="text-[8px] font-mono px-2.5 py-1 rounded-lg border border-[rgb(var(--accent-rgb)/0.2)] text-[rgb(var(--accent-rgb))] hover:bg-[rgb(var(--accent-rgb)/0.08)] transition"
-                                                >
-                                                    Swap in
-                                                </button>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-}
-
-type ExVolumeEntry = { name: string; volume: number; color?: string };
-
-function SessionCounterPanel({ sets, totalSets, volume, elapsed, weightUnit, lastDelta, lastSessionVolume, exerciseVolumes }: {
-    sets: number; totalSets: number; volume: number; elapsed: number; weightUnit: string; lastDelta: number;
-    lastSessionVolume: number; exerciseVolumes: ExVolumeEntry[];
-}) {
-    const volStr = Math.round(volume).toLocaleString();
-    const min = String(Math.floor(elapsed / 60)).padStart(2, "0");
-    const sec = String(elapsed % 60).padStart(2, "0");
-    const [deltaKey, setDeltaKey] = useState(0);
-    const prevDelta = useRef(lastDelta);
-    const [expanded, setExpanded] = useState(false);
-    const [showCalInfo, setShowCalInfo] = useState(false);
-    const panelRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        if (lastDelta !== prevDelta.current && lastDelta > 0) {
-            prevDelta.current = lastDelta;
-            setDeltaKey((k) => k + 1);
-        }
-    }, [lastDelta]);
-
-    useEffect(() => {
-        if (!expanded) return;
-        function handleClick(e: MouseEvent) {
-            if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-                setExpanded(false);
-            }
-        }
-        document.addEventListener("mousedown", handleClick);
-        return () => document.removeEventListener("mousedown", handleClick);
-    }, [expanded]);
-
-    const volDiff = lastSessionVolume > 0 ? volume - lastSessionVolume : 0;
-    const kcalEstimate = Math.round(volume * 0.05);
-    const evs = exerciseVolumes ?? [];
-    const maxExVol = Math.max(...evs.map((e) => e.volume), 1);
-
-    return (
-        <div ref={panelRef} className="rounded-2xl border border-[var(--fg-06)] overflow-hidden flap-panel">
-            {/* Main counters */}
-            <div className="flex items-stretch cursor-pointer" onClick={() => setExpanded((e) => !e)}>
-                {/* SETS */}
-                <div className="flex-1 py-3 px-2 text-center border-r border-[var(--fg-04)]">
-                    <p className="text-[7px] font-mono tracking-[0.2em] text-[var(--fg-20)] mb-1.5">SETS</p>
-                    <div className="text-xl leading-none">
-                        <FlapNumber value={String(sets)} />
-                        <span className="text-[var(--fg-12)] text-[0.5em] mx-0.5 font-mono">/</span>
-                        <span className="text-[0.5em] text-[var(--fg-20)] font-mono">{totalSets}</span>
-                    </div>
-                </div>
-                {/* VOLUME */}
-                <div className="flex-[2] py-3 px-2 text-center relative">
-                    <p className="text-[7px] font-mono tracking-[0.2em] text-[var(--fg-20)] mb-1.5">VOLUME</p>
-                    <div className="text-2xl leading-none">
-                        <FlapNumber value={volStr} suffix={weightUnit} accent />
-                    </div>
-                    {deltaKey > 0 && <DeltaToast key={deltaKey} value={lastDelta} />}
-                    {lastSessionVolume > 0 && (
-                        <p className={`text-[8px] font-mono mt-1.5 ${volDiff >= 0 ? "text-emerald-400/60" : "text-red-400/50"}`}>
-                            {volDiff >= 0 ? "↑" : "↓"} {Math.abs(Math.round(volDiff)).toLocaleString()}{weightUnit} vs last
-                        </p>
-                    )}
-                </div>
-                {/* ELAPSED */}
-                <div className="flex-1 py-3 px-2 text-center border-l border-[var(--fg-04)]">
-                    <p className="text-[7px] font-mono tracking-[0.2em] text-[var(--fg-20)] mb-1.5">ELAPSED</p>
-                    <div className="text-xl leading-none">
-                        <FlapNumber value={min} />
-                        <span className="text-[var(--fg-15)] mx-px animate-pulse font-mono">:</span>
-                        <FlapNumber value={sec} />
-                    </div>
-                </div>
-            </div>
-            {/* Mini rune circle — tap to expand/collapse */}
-            <div className="cursor-pointer border-t border-[var(--fg-04)]" onClick={() => setExpanded((e) => !e)}>
-                {/* Collapsed: small circle + hint */}
-                {!expanded && (
-                    <div className="py-2">
-                        <MiniRuneCircle completed={sets} total={totalSets} circleSize={64} />
-                        <p className="text-[7px] font-mono text-[var(--fg-15)] text-center mt-0.5 tracking-wider">tap for details</p>
-                    </div>
-                )}
-                {/* Expanded: bigger circle + merged details */}
-                {expanded && (
-                    <div className="py-3 space-y-3">
-                        <MiniRuneCircle completed={sets} total={totalSets} circleSize={120} />
-                        <div className="px-4 space-y-3">
-                            {/* Calorie estimate */}
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-1.5">
-                                    <span className="text-[9px] font-mono text-[var(--fg-25)]">EST. CALORIES</span>
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); setShowCalInfo((v) => !v); }}
-                                        className="w-3.5 h-3.5 rounded-full border border-[var(--fg-15)] flex items-center justify-center text-[8px] font-mono text-[var(--fg-30)] hover:text-[var(--fg-60)] hover:border-[var(--fg-30)] transition"
-                                    >i</button>
-                                </div>
-                                <span className="text-sm font-mono font-bold text-amber-400/70">{kcalEstimate} kcal</span>
-                            </div>
-                            {showCalInfo && (
-                                <div className="text-[8px] font-mono text-[var(--fg-30)] bg-[var(--fg-03)] rounded-lg px-3 py-2 leading-relaxed">
-                                    Estimated as total volume × 0.05 kcal/kg. Rough approximation based on mechanical work. Actual burn varies by exercise type, rest, body composition, and intensity.
-                                </div>
-                            )}
-                            {/* Per-exercise volume bars */}
-                            {evs.length > 0 && (
-                                <div className="space-y-1.5">
-                                    <p className="text-[8px] font-mono tracking-widest text-[var(--fg-20)]">VOLUME BY EXERCISE</p>
-                                    {evs.map((ev) => (
-                                        <div key={ev.name} className="flex items-center gap-2">
-                                            <span className="text-[9px] font-mono text-[var(--fg-40)] w-24 truncate shrink-0">{ev.name}</span>
-                                            <div className="flex-1 h-1.5 rounded-full bg-[var(--fg-06)] overflow-hidden">
-                                                <div className="h-full rounded-full bg-[rgb(var(--accent-rgb))] transition-all duration-500" style={{ width: `${(ev.volume / maxExVol) * 100}%` }} />
-                                            </div>
-                                            <span className="text-[8px] font-mono text-[var(--fg-25)] w-12 text-right shrink-0">{Math.round(ev.volume).toLocaleString()}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-}
-
-/* ─── MAIN COMPONENT ─── */
-export default function WorkoutPage() {
-    const router = useRouter();
-    const { enabledKeys } = useModules();
-    const { user } = useAuth();
-    const w = useWorkoutSession();
-    const [editingExId, setEditingExId] = useState<string | null>(null);
-    const prevVolRef = useRef(0);
-    const [lastDelta, setLastDelta] = useState(0);
-    const [rpePrompt, setRpePrompt] = useState<{ exId: string; setIdx: number } | null>(null);
-    const rpeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const [detailExercise, setDetailExercise] = useState<WorkoutExercise | null>(null);
-    const [formCheckExercise, setFormCheckExercise] = useState<string | null>(null);
-    const [fatigueAlerts, setFatigueAlerts] = useState<FatigueAlert[]>([]);
-    const [fatigueDismissed, setFatigueDismissed] = useState(false);
-
-    useEffect(() => {
-        if (!user || !w.statsLoaded || w.status !== "not_started") return;
-        let cancelled = false;
-        detectFatigue(supabase, user.id, w.userSex).then(alerts => {
-            if (!cancelled) setFatigueAlerts(alerts);
+    function toggleGroup(seg: string) {
+        setOpenGroups((prev) => {
+            const next = new Set(prev);
+            next.has(seg) ? next.delete(seg) : next.add(seg);
+            return next;
         });
-        return () => { cancelled = true; };
-    }, [user, w.statsLoaded, w.status, w.userSex]);
-
-    // Minimum display time for completed session loading screen
-    const [minLoadDone, setMinLoadDone] = useState(false);
-    const minLoadTimerRef = useRef(false);
-    if (!minLoadTimerRef.current && w.loadHint === "completed") {
-        minLoadTimerRef.current = true;
-        setTimeout(() => setMinLoadDone(true), 2000);
-    }
-    const showCompletedLoader = w.loadHint === "completed" && (!w.hasLoaded || !minLoadDone);
-
-    const sortedExercises = useMemo(() => {
-        if (w.status !== "active") return w.exercisesList;
-        const list = [...w.exercisesList];
-        list.sort((a, b) => {
-            const aSkipped = w.skippedExercises.has(a.id);
-            const bSkipped = w.skippedExercises.has(b.id);
-            const aSets = (w.logs[a.id] ?? []).filter((s) => !s.is_warmup);
-            const bSets = (w.logs[b.id] ?? []).filter((s) => !s.is_warmup);
-            const aDone = aSets.length > 0 && aSets.every((s) => s.completed) && w.confirmedExercises.has(a.id);
-            const bDone = bSets.length > 0 && bSets.every((s) => s.completed) && w.confirmedExercises.has(b.id);
-
-            if (aSkipped && !bSkipped) return 1;
-            if (!aSkipped && bSkipped) return -1;
-            if (aDone && !bDone) return 1;
-            if (!aDone && bDone) return -1;
-
-            if (w.expandedId === a.id && w.expandedId !== b.id) return -1;
-            if (w.expandedId !== a.id && w.expandedId === b.id) return 1;
-
-            // Keep superset partners adjacent
-            if (a.superset_group != null && a.superset_group === b.superset_group) return a.order_index - b.order_index;
-
-            return a.order_index - b.order_index;
-        });
-        return list;
-    }, [w.exercisesList, w.logs, w.expandedId, w.skippedExercises, w.confirmedExercises, w.status]);
-
-    useEffect(() => {
-        const vol = w.sessionVolume ?? 0;
-        if (vol > prevVolRef.current && prevVolRef.current > 0) {
-            setLastDelta(vol - prevVolRef.current);
-        }
-        prevVolRef.current = vol;
-    }, [w.sessionVolume]);
-
-    function showRpePrompt(exId: string, setIdx: number) {
-        if (rpeTimerRef.current) clearTimeout(rpeTimerRef.current);
-        setRpePrompt({ exId, setIdx });
-        rpeTimerRef.current = setTimeout(() => setRpePrompt(null), 3000);
     }
 
-    function handleRpe(rpe: number) {
-        if (!rpePrompt) return;
-        w.updateSetRpe(rpePrompt.exId, rpePrompt.setIdx, rpe);
-        if (rpeTimerRef.current) clearTimeout(rpeTimerRef.current);
-        setRpePrompt(null);
-    }
-
-    function completeWithRpe(ex: WorkoutExercise, idx: number, overrides?: { weight?: string; reps?: string }, isQuickLog?: boolean) {
-        const set = w.logs[ex.id]?.find((s) => s.index === idx);
-        w.completeSet(ex, idx, overrides);
-        if (!isQuickLog && !set?.is_warmup && set?.set_type !== "drop") {
-            showRpePrompt(ex.id, idx);
-        }
-    }
-
-    /* ═══════════════════════════════════════════════════════════════
-       RENDER
-    ═══════════════════════════════════════════════════════════════ */
-
-    // ── LOADING ──
-    if (showCompletedLoader) {
+    if (loading) {
         return (
-            <main className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] flex flex-col items-center justify-center">
-                <ReportRuneLoader progress={w.loadProgress} />
-            </main>
-        );
-    }
-    if (w.status === "loading" || !w.hasLoaded) {
-        if (w.loadHint === "active") return null;
-        return (
-            <main className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] flex items-center justify-center">
+            <main className="min-h-screen bg-[var(--bg-primary)] flex items-center justify-center">
                 <CubeLoader />
             </main>
         );
     }
 
-    // ── REST DAY ──
-    if (w.status === "rest_day") return (
-        <main className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] p-4 pb-24 relative">
-            <div className="relative z-10 max-w-xl mx-auto pt-2">
+    return (
+        <main className="relative min-h-screen w-full max-w-full bg-[var(--bg-primary)] text-[var(--text-primary)] pb-36 md:pb-10 overflow-x-hidden">
+            <div className="w-full max-w-xl mx-auto px-4 md:px-10 pt-4 md:pt-10 space-y-4">
                 <SwipeNav sections={getTrainSections(enabledKeys)} />
-                <div className="flex flex-col items-center justify-center py-16">
-                    <div className="w-14 h-14 mx-auto mb-4 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 flex items-center justify-center">
-                        <Moon size={24} className="text-emerald-400" />
-                    </div>
-                    <p className="text-base font-semibold text-emerald-400">Rest Day</p>
-                    <p className="text-[11px] text-[var(--fg-30)] mt-1.5 max-w-xs mx-auto text-center">Recovery is when your muscles grow. Nothing to log today.</p>
-                </div>
-            </div>
-        </main>
-    );
 
-    // ── NO PLAN ──
-    if (w.status === "no_plan") return (
-        <main className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] p-4 pb-24 relative">
-            <div className="relative z-10 max-w-xl mx-auto pt-2">
-                <SwipeNav sections={getTrainSections(enabledKeys)} />
-                <div className="text-center mb-8 mt-8">
-                    <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-[rgb(var(--accent-rgb)/0.1)] border border-[rgb(var(--accent-rgb)/0.2)] flex items-center justify-center">
-                        <Dumbbell size={24} className="text-[rgb(var(--accent-rgb))]" />
-                    </div>
-                    <p className="text-lg font-bold text-[var(--fg-85)]">Get Started</p>
-                    <p className="text-[11px] text-[var(--fg-30)] mt-1 max-w-xs mx-auto">Choose how you want to train</p>
+                {/* Header */}
+                <div className="pt-1">
+                    <p className="text-[10px] font-mono tracking-widest text-[var(--fg-25)]">GYM</p>
+                    <h1 className="text-2xl font-bold text-[var(--fg-90)] mt-0.5 leading-tight">Exercise Library</h1>
+                    <p className="text-[11px] text-[var(--fg-35)] mt-1">Browse exercises, plans, and training templates</p>
                 </div>
 
-                <div className="space-y-3">
-                    <div className="rounded-2xl border border-[rgb(var(--accent-rgb)/0.15)] bg-[rgb(var(--accent-rgb)/0.03)] p-4">
-                        <p className="text-sm font-semibold text-[var(--fg-85)] mb-1">Create personalized plan</p>
-                        <p className="text-[11px] text-[var(--fg-30)] mb-3">Build your own weekly schedule with custom exercises, sets, and rest days.</p>
-                        <button onClick={() => router.push("/schedule")} className="w-full text-sm font-semibold py-3 rounded-xl bg-[rgb(var(--accent-rgb))] text-black hover:brightness-110 transition">
-                            Create My Plan
-                        </button>
-                    </div>
-
-                    <div className="rounded-2xl border border-[rgb(var(--accent-rgb)/0.15)] bg-[var(--fg-03)] p-4">
-                        <p className="text-sm font-semibold text-[var(--fg-85)] mb-1">Select from existing plans</p>
-                        <p className="text-[11px] text-[var(--fg-30)] mb-3">Browse proven workout programs — PPL, Upper/Lower, Full Body, and more.</p>
-                        <button onClick={() => router.push("/schedule?browse=1")} className="w-full text-sm font-semibold py-3 rounded-xl border border-[rgb(var(--accent-rgb)/0.3)] text-[rgb(var(--accent-rgb))] hover:bg-[rgb(var(--accent-rgb)/0.05)] transition">
-                            Browse Plan Library
-                        </button>
-                    </div>
-
-                    <div className="rounded-2xl border border-[var(--fg-06)] bg-[var(--fg-03)] p-4">
-                        <p className="text-sm font-semibold text-[var(--fg-85)] mb-1">Just train today</p>
-                        <p className="text-[11px] text-[var(--fg-30)] mb-3">No plan needed — pick exercises and log as you go.</p>
-                        <button onClick={() => w.setStatus("freestyle")} className="w-full text-sm font-medium py-3 rounded-xl border border-[var(--fg-10)] text-[var(--fg-60)] hover:text-[var(--fg-90)] hover:bg-[var(--fg-05)] transition">
-                            Start Freestyle Session
-                        </button>
-                    </div>
+                {/* Tabs */}
+                <div className="flex gap-1 p-1 rounded-xl bg-[var(--fg-03)] border border-[var(--fg-06)]">
+                    <button
+                        onClick={() => setTab("exercises")}
+                        className={`flex-1 flex items-center justify-center gap-1.5 text-[11px] font-mono font-medium py-2 rounded-lg transition ${
+                            tab === "exercises"
+                                ? "bg-[rgb(var(--accent-rgb)/0.12)] text-[rgb(var(--accent-rgb))] border border-[rgb(var(--accent-rgb)/0.2)]"
+                                : "text-[var(--fg-35)] hover:text-[var(--fg-60)]"
+                        }`}
+                    >
+                        <Database size={13} /> EXERCISES
+                    </button>
+                    <button
+                        onClick={() => setTab("plans")}
+                        className={`flex-1 flex items-center justify-center gap-1.5 text-[11px] font-mono font-medium py-2 rounded-lg transition ${
+                            tab === "plans"
+                                ? "bg-[rgb(var(--accent-rgb)/0.12)] text-[rgb(var(--accent-rgb))] border border-[rgb(var(--accent-rgb)/0.2)]"
+                                : "text-[var(--fg-35)] hover:text-[var(--fg-60)]"
+                        }`}
+                    >
+                        <BookOpen size={13} /> PLANS
+                    </button>
                 </div>
-            </div>
-        </main>
-    );
 
-    // ── FREESTYLE (BUILD) ──
-    if (w.status === "freestyle") return (
-        <main className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] pb-24 relative">
-            <div className="relative z-10 max-w-xl mx-auto px-4 pt-6">
-                <button onClick={w.goBackFromFreestyle} className="text-[10px] font-mono text-[var(--fg-30)] hover:text-[var(--fg-60)] transition mb-4">
-                    ← Back
-                </button>
-                <h1 className="text-xl font-bold font-display text-[rgb(var(--accent-light-rgb))] mb-1">Freestyle Session</h1>
-                <p className="text-[11px] text-[var(--fg-30)] mb-5">Pick exercises and start training</p>
+                {/* ═══ EXERCISES TAB ═══ */}
+                {tab === "exercises" && (
+                    <>
+                        {/* 2.1 Discipline category cards */}
+                        <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
+                            {DISCIPLINE_FILTER_ORDER.map(disc => {
+                                const count = disciplineCounts[disc] || 0;
+                                if (count === 0) return null;
+                                const color = DISCIPLINE_COLORS_HEX[disc] || "#94a3b8";
+                                const isActive = disciplineFilter === disc;
+                                const label = disc === "bjj" ? "BJJ" : disc === "mma" ? "MMA" : disc.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+                                return (
+                                    <button
+                                        key={disc}
+                                        onClick={() => setDisciplineFilter(isActive ? "all" : disc)}
+                                        className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[10px] font-mono font-medium transition active:scale-95 ${
+                                            isActive ? "border-transparent text-white" : "border-[var(--fg-06)] text-[var(--fg-35)] hover:text-[var(--fg-55)]"
+                                        }`}
+                                        style={isActive ? { background: color } : { borderLeftWidth: 2, borderLeftColor: `${color}80` }}
+                                    >
+                                        <div className="w-1.5 h-1.5 rounded-full" style={isActive ? { background: "rgba(255,255,255,0.4)" } : { background: color }} />
+                                        {label}
+                                        <span className={`text-[8px] ${isActive ? "text-white/60" : "text-[var(--fg-15)]"}`}>{count}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
 
-                <button onClick={() => w.setShowFreestyleAddModal(true)} className="w-full flex items-center justify-center gap-2 text-sm font-medium py-3 rounded-xl border border-[rgb(var(--accent-rgb)/0.2)] bg-[rgb(var(--accent-rgb)/0.05)] text-[rgb(var(--accent-rgb))] hover:bg-[rgb(var(--accent-rgb)/0.1)] transition mb-4">
-                    <Plus size={16} /> Add Exercise
-                </button>
+                        {/* 6.7 Muscle browser — tap to filter */}
+                        <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
+                            {SEGMENT_ORDER.map(seg => {
+                                const count = exercises.filter(e => (e.body_segment || "Other") === seg).length;
+                                if (count === 0) return null;
+                                const color = SEGMENT_COLORS[seg] || SEGMENT_COLORS.Other;
+                                const isActive = segmentFilter === seg;
+                                return (
+                                    <button
+                                        key={seg}
+                                        onClick={() => setSegmentFilter(isActive ? "all" : seg)}
+                                        className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl border text-[11px] font-mono font-medium transition active:scale-95 ${
+                                            isActive
+                                                ? "border-transparent text-black"
+                                                : "border-[var(--fg-06)] text-[var(--fg-40)] hover:text-[var(--fg-60)]"
+                                        }`}
+                                        style={isActive ? { background: `rgb(${color})`, borderColor: `rgb(${color})` } : { borderLeftWidth: 2, borderLeftColor: `rgb(${color} / 0.5)` }}
+                                    >
+                                        <div className={`w-2 h-2 rounded-full ${isActive ? "bg-black/30" : ""}`} style={isActive ? {} : { background: `rgb(${color})` }} />
+                                        {seg}
+                                        <span className={`text-[9px] ${isActive ? "text-black/50" : "text-[var(--fg-20)]"}`}>{count}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
 
-                {w.freestyleExercises.length === 0 ? (
-                    <div className="text-center py-10">
-                        <p className="text-[11px] text-[var(--fg-25)]">No exercises added yet.</p>
-                    </div>
-                ) : (
-                    <div className="space-y-2 mb-6">
-                        {w.freestyleExercises.map((ex, i) => (
-                            <div key={ex.id} className="flex items-center gap-3 glass-card px-4 py-3">
-                                <span className="text-[10px] font-mono text-[var(--fg-20)] w-5 shrink-0">{String(i + 1).padStart(2, "0")}</span>
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-[13px] font-medium text-[var(--fg-80)] truncate">{ex.name}</p>
-                                    <p className="text-[9px] font-mono text-[var(--fg-25)]">{ex.body_segment}</p>
-                                </div>
-                                <button onClick={() => w.removeFreestyleExercise(ex.id)} className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-[var(--fg-20)] hover:text-red-400 transition">
+                        {/* Search */}
+                        <div className="relative">
+                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--fg-20)]" />
+                            <input
+                                type="text"
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                                placeholder="Search exercises..."
+                                className="w-full h-10 rounded-xl bg-[var(--fg-04)] border border-[var(--fg-06)] text-sm pl-9 pr-10 focus:outline-none focus:border-[rgb(var(--accent-rgb)/0.3)] transition placeholder:text-[var(--fg-20)]"
+                            />
+                            {query && (
+                                <button onClick={() => setQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--fg-20)] hover:text-[var(--fg-50)]">
                                     <X size={14} />
                                 </button>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {w.freestyleExercises.length > 0 && (
-                    <button
-                        onClick={w.beginFreestyleSession}
-                        disabled={w.startingFreestyle}
-                        className="w-full flex items-center justify-center gap-2 text-sm font-semibold py-3.5 rounded-xl bg-[rgb(var(--accent-rgb))] text-black hover:brightness-110 disabled:opacity-50 transition"
-                    >
-                        <Play size={16} fill="black" /> {w.startingFreestyle ? "Starting..." : "Begin Session"}
-                    </button>
-                )}
-            </div>
-
-            {w.showFreestyleAddModal && <AddExerciseModal onAdd={w.addFreestyleExercise} onClose={() => w.setShowFreestyleAddModal(false)} existingIds={new Set(w.freestyleExercises.map((e) => e.exercise_id))} />}
-        </main>
-    );
-
-    // ── COMPLETED ──
-    if (w.status === "completed" && w.summary) {
-        return (
-        <main className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] p-4 pb-24 relative">
-            <div className="relative z-10 w-full max-w-xl mx-auto pt-2 space-y-3">
-                <SwipeNav sections={getTrainSections(enabledKeys)} />
-
-                <WorkoutCompleteCard
-                    dayTitle={w.dayTitle}
-                    summary={w.summary}
-                    exercisesList={w.exercisesList}
-                    logs={w.logs}
-                    todaySessions={w.todaySessions}
-                    weekDays={w.weekDays}
-                    prCount={w.prCount}
-                    weightUnit={w.weightUnit}
-                    sessionRating={w.sessionRating}
-                    cycleProfile={w.cycleProfile}
-                    sharing={w.sharing}
-                    maxSessions={w.MAX_SESSIONS_PER_DAY}
-                    sessionCount={w.sessionCount}
-                    nextSession={w.nextSession}
-                    onRate={w.rateSession}
-                    onShare={w.handleShare}
-                    onSchedule={() => router.push("/schedule")}
-                    onProgress={() => router.push("/progress")}
-                    onStartAnother={w.startAnotherWorkout}
-                />
-
-                {/* Recent Sessions */}
-                {w.statsLoaded && w.recentSessions.length > 0 && (
-                    <div style={{background:"var(--bg-card)",borderRadius:16,border:"1px solid rgb(var(--accent-rgb) / 0.08)",padding:"16px 20px"}}>
-                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-                            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:7,letterSpacing:2,color:"var(--fg-35)"}}>RECENT SESSIONS</span>
-                            <a href="/progress/history" style={{fontFamily:"'JetBrains Mono',monospace",fontSize:8,color:"rgb(var(--accent-rgb) / 0.5)",textDecoration:"none",letterSpacing:1}}>View All</a>
+                            )}
                         </div>
-                        <div>
-                            {w.recentSessions.map((s) => {
-                                const d = new Date(s.date + "T12:00:00");
-                                const now = new Date();
-                                const diff = Math.floor((now.getTime() - d.getTime()) / 86400000);
-                                const label = diff === 0 ? "Today" : diff === 1 ? "Yesterday" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+                        {/* Filters */}
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setShowFilters(!showFilters)}
+                                className={`flex items-center gap-1.5 text-[10px] font-mono px-3 py-1.5 rounded-lg border transition ${
+                                    showFilters || segmentFilter !== "all" || equipmentFilter !== "all" || disciplineFilter !== "all"
+                                        ? "border-[rgb(var(--accent-rgb)/0.3)] text-[rgb(var(--accent-rgb))] bg-[rgb(var(--accent-rgb)/0.05)]"
+                                        : "border-[var(--fg-06)] text-[var(--fg-30)] hover:text-[var(--fg-50)]"
+                                }`}
+                            >
+                                <Filter size={11} /> FILTER
+                                {(segmentFilter !== "all" || equipmentFilter !== "all" || disciplineFilter !== "all") && (
+                                    <span className="w-4 h-4 rounded-full bg-[rgb(var(--accent-rgb))] text-black text-[8px] font-bold flex items-center justify-center">
+                                        {(segmentFilter !== "all" ? 1 : 0) + (equipmentFilter !== "all" ? 1 : 0) + (disciplineFilter !== "all" ? 1 : 0)}
+                                    </span>
+                                )}
+                            </button>
+                            <span className="text-[10px] font-mono text-[var(--fg-20)]">{filtered.length} exercises</span>
+                            {(segmentFilter !== "all" || equipmentFilter !== "all" || disciplineFilter !== "all") && (
+                                <button onClick={() => { setSegmentFilter("all"); setEquipmentFilter("all"); setDisciplineFilter("all"); }} className="text-[9px] font-mono text-[var(--fg-25)] hover:text-[var(--fg-50)] transition">
+                                    Clear all
+                                </button>
+                            )}
+                        </div>
+
+                        {showFilters && (
+                            <div className="space-y-3 rounded-xl border border-[var(--fg-06)] bg-[var(--fg-02)] p-3">
+                                <div>
+                                    <p className="text-[8px] font-mono text-[var(--fg-25)] tracking-widest mb-1.5">MUSCLE GROUP</p>
+                                    <div className="flex flex-wrap gap-1">
+                                        <button onClick={() => setSegmentFilter("all")}
+                                            className={`text-[9px] font-mono px-2 py-1 rounded-md border transition ${segmentFilter === "all" ? "border-[rgb(var(--accent-rgb)/0.3)] text-[rgb(var(--accent-rgb))] bg-[rgb(var(--accent-rgb)/0.08)]" : "border-[var(--fg-06)] text-[var(--fg-30)]"}`}>
+                                            All
+                                        </button>
+                                        {segments.map((s) => (
+                                            <button key={s} onClick={() => setSegmentFilter(s === segmentFilter ? "all" : s)}
+                                                className={`text-[9px] font-mono px-2 py-1 rounded-md border transition ${segmentFilter === s ? "border-[rgb(var(--accent-rgb)/0.3)] text-[rgb(var(--accent-rgb))] bg-[rgb(var(--accent-rgb)/0.08)]" : "border-[var(--fg-06)] text-[var(--fg-30)]"}`}>
+                                                {s}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div>
+                                    <p className="text-[8px] font-mono text-[var(--fg-25)] tracking-widest mb-1.5">EQUIPMENT</p>
+                                    <div className="flex flex-wrap gap-1">
+                                        <button onClick={() => setEquipmentFilter("all")}
+                                            className={`text-[9px] font-mono px-2 py-1 rounded-md border transition ${equipmentFilter === "all" ? "border-[rgb(var(--accent-rgb)/0.3)] text-[rgb(var(--accent-rgb))] bg-[rgb(var(--accent-rgb)/0.08)]" : "border-[var(--fg-06)] text-[var(--fg-30)]"}`}>
+                                            All
+                                        </button>
+                                        {equipmentTypes.map((eq) => (
+                                            <button key={eq} onClick={() => setEquipmentFilter(eq === equipmentFilter ? "all" : eq)}
+                                                className={`text-[9px] font-mono px-2 py-1 rounded-md border transition ${equipmentFilter === eq ? "border-[rgb(var(--accent-rgb)/0.3)] text-[rgb(var(--accent-rgb))] bg-[rgb(var(--accent-rgb)/0.08)]" : "border-[var(--fg-06)] text-[var(--fg-30)]"}`}>
+                                                {eq}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Grouped exercise list */}
+                        <div className="space-y-2">
+                            {grouped.map(({ segment, items }) => {
+                                const isOpen = openGroups.has(segment);
+                                const color = SEGMENT_COLORS[segment] || SEGMENT_COLORS.Other;
                                 return (
-                                    <div key={s.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid rgb(var(--accent-rgb) / 0.08)"}}>
-                                        <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:"var(--fg-90)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,minWidth:0}}>{s.title}</span>
-                                        <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:8,color:"var(--fg-35)",flexShrink:0,marginLeft:8}}>{label}</span>
+                                    <div key={segment} className="rounded-xl border border-[var(--fg-06)] bg-[var(--fg-02)] overflow-hidden">
+                                        <button
+                                            onClick={() => toggleGroup(segment)}
+                                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[var(--fg-03)] transition"
+                                        >
+                                            <div className="w-1 h-6 rounded-full" style={{ background: `rgb(${color})` }} />
+                                            <span className="text-sm font-medium text-[var(--fg-80)] flex-1 text-left">{segment}</span>
+                                            <span className="text-[10px] font-mono text-[var(--fg-25)]">{items.length}</span>
+                                            {isOpen ? <ChevronDown size={14} className="text-[var(--fg-25)]" /> : <ChevronRight size={14} className="text-[var(--fg-25)]" />}
+                                        </button>
+                                        {isOpen && (
+                                            <div className="border-t border-[var(--fg-04)]">
+                                                {items.map((ex) => (
+                                                    <button
+                                                        key={ex.id}
+                                                        onClick={() => setDetailEx(ex)}
+                                                        className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--fg-03)] transition border-b border-[var(--fg-03)] last:border-b-0"
+                                                    >
+                                                        {ex.image_url ? (
+                                                            <div className="w-8 h-8 rounded-lg overflow-hidden border border-[var(--fg-06)] shrink-0">
+                                                                <img src={ex.image_url} alt="" className="w-full h-full object-cover" />
+                                                            </div>
+                                                        ) : (
+                                                            <div className="w-8 h-8 rounded-lg bg-[var(--fg-04)] border border-[var(--fg-06)] flex items-center justify-center shrink-0">
+                                                                <Dumbbell size={12} className="text-[var(--fg-15)]" />
+                                                            </div>
+                                                        )}
+                                                        <div className="flex-1 min-w-0 text-left">
+                                                            <p className="text-[13px] font-medium text-[var(--fg-80)] truncate">{ex.name}</p>
+                                                            <p className="text-[9px] font-mono text-[var(--fg-25)]">{ex.equipment} · {ex.primary_muscle}</p>
+                                                        </div>
+                                                        <ChevronRight size={13} className="shrink-0 text-[var(--fg-15)]" />
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 );
                             })}
                         </div>
-                    </div>
-                )}
 
-            </div>
-
-            {w.showFreestylePrompt && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                    <div className="w-full max-w-sm rounded-2xl border border-[var(--fg-08)] bg-[var(--bg-card)] p-5">
-                        <p className="text-sm font-semibold text-[var(--fg-85)] mb-2">
-                            Save as {new Date().toLocaleDateString(undefined, { weekday: "long" })} workout?
-                        </p>
-                        <p className="text-[11px] text-[var(--fg-35)] mb-4">
-                            It&apos;ll repeat every {new Date().toLocaleDateString(undefined, { weekday: "long" })} automatically.
-                        </p>
-                        <div className="flex gap-2">
-                            <button onClick={() => w.setShowFreestylePrompt(false)} className="flex-1 text-sm font-medium py-2.5 rounded-xl border border-[var(--fg-08)] text-[var(--fg-50)] hover:text-[var(--fg-80)] transition">
-                                No Thanks
-                            </button>
-                            <button onClick={w.saveFreestyleAsRecurringPlan} disabled={w.savingFreestylePlan} className="flex-1 text-sm font-semibold py-2.5 rounded-xl bg-[rgb(var(--accent-rgb))] text-black hover:brightness-110 disabled:opacity-50 transition">
-                                {w.savingFreestylePlan ? "Saving..." : "Yes, Save"}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </main>
-    );
-    }
-
-    // ── NOT STARTED / ACTIVE ──
-    return (
-        <main className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] pb-36 md:pb-10 relative">
-
-            <div className="relative z-10 max-w-xl mx-auto px-4 pt-6 space-y-4">
-
-                <SwipeNav sections={getTrainSections(enabledKeys)} />
-
-                {/* ── TOP BAR ── */}
-                <div>
-                    <div className="flex items-center justify-between">
-                        <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                                <span className="text-[9px] font-mono tracking-widest text-[var(--fg-20)] uppercase">
-                                    {new Date().toLocaleDateString("en-US", { weekday: "long" })}
-                                </span>
-                                {w.status === "active" && (
-                                    <span className="text-[8px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400/70 border border-emerald-500/15">LIVE</span>
-                                )}
-                            </div>
-                            <h1 className="text-lg font-bold text-[var(--fg-90)] leading-tight">{w.dayTitle}</h1>
-                        </div>
-                        {w.status === "not_started" && (
-                            <div className="flex items-center gap-2 shrink-0">
-                                <button onClick={() => w.setShowDeletePlanConfirm(true)} className="w-9 h-9 flex items-center justify-center rounded-xl border border-[var(--fg-06)] text-[var(--fg-20)] hover:text-red-400/80 hover:border-red-500/20 transition">
-                                    <Trash2 size={13} />
-                                </button>
-                                <button onClick={() => router.push("/schedule")} className="flex items-center gap-1.5 text-[10px] font-mono px-3 py-2 rounded-xl border border-[var(--fg-06)] text-[var(--fg-30)] hover:text-[var(--fg-60)] hover:bg-[var(--fg-03)] transition">
-                                    <Calendar size={11} /> Schedule
-                                </button>
+                        {filtered.length === 0 && (
+                            <div className="text-center py-12">
+                                <Dumbbell size={24} className="mx-auto text-[var(--fg-10)] mb-2" />
+                                <p className="text-sm text-[var(--fg-30)]">No exercises found</p>
+                                <p className="text-[10px] text-[var(--fg-20)] mt-1">Try adjusting your search or filters</p>
                             </div>
                         )}
-                    </div>
-                </div>
-
-                {/* ── SESSION COUNTER PANEL ── */}
-                {w.status === "active" && (() => {
-                    const exVols: ExVolumeEntry[] = w.exercisesList.map((ex) => {
-                        const sets = (w.logs[ex.id] ?? []).filter((s) => s.completed && !s.is_warmup);
-                        const mult = isDualWeight(ex) ? 2 : 1;
-                        const vol = sets.reduce((sum, s) => sum + (Number(s.weight) || 0) * (Number(s.reps) || 0) * mult, 0);
-                        return { name: ex.name, volume: Math.round(kgToUnit(vol, w.weightUnit)) };
-                    }).filter((e) => e.volume > 0);
-                    const lastVol = w.recentSessions.length > 0 ? Math.round(kgToUnit(w.recentSessions[0].volume, w.weightUnit)) : 0;
-                    return (
-                        <SessionCounterPanel
-                            sets={w.completedCount}
-                            totalSets={w.totalPlanned}
-                            volume={Math.round(kgToUnit(w.sessionVolume, w.weightUnit))}
-                            elapsed={w.elapsed}
-                            weightUnit={w.weightUnit}
-                            lastDelta={Math.round(kgToUnit(lastDelta, w.weightUnit))}
-                            lastSessionVolume={lastVol}
-                            exerciseVolumes={exVols}
-                        />
-                    );
-                })()}
-
-                {/* ── FATIGUE WARNING BANNER ── */}
-                {w.status === "not_started" && fatigueAlerts.length > 0 && !fatigueDismissed && (
-                    <div className={`rounded-2xl border p-4 relative ${
-                        fatigueAlerts.some(a => a.severity === "critical")
-                            ? "border-red-400/20 bg-red-400/[0.04]"
-                            : "border-amber-400/20 bg-amber-400/[0.04]"
-                    }`}>
-                        <button onClick={() => setFatigueDismissed(true)} className="absolute top-3 right-3 text-[var(--fg-20)] hover:text-[var(--fg-50)] transition">
-                            <X size={14} />
-                        </button>
-                        <div className="flex items-start gap-3">
-                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
-                                fatigueAlerts.some(a => a.severity === "critical")
-                                    ? "bg-red-400/15 border border-red-400/25"
-                                    : "bg-amber-400/15 border border-amber-400/25"
-                            }`}>
-                                <Flame size={14} className={fatigueAlerts.some(a => a.severity === "critical") ? "text-red-400" : "text-amber-400"} />
-                            </div>
-                            <div className="flex-1 min-w-0 pr-4">
-                                <p className={`text-[8px] font-mono tracking-widest mb-0.5 ${
-                                    fatigueAlerts.some(a => a.severity === "critical") ? "text-red-400/60" : "text-amber-400/60"
-                                }`}>FATIGUE WARNING</p>
-                                <p className={`text-sm font-semibold ${
-                                    fatigueAlerts.some(a => a.severity === "critical") ? "text-red-300/90" : "text-amber-300/90"
-                                }`}>{fatigueAlerts[0].message}</p>
-                                <p className="text-[10px] text-[var(--fg-35)] mt-1 leading-relaxed">{fatigueAlerts[0].detail}</p>
-                                {fatigueAlerts.length > 1 && (
-                                    <div className="mt-2 pt-2 border-t border-[var(--fg-06)] space-y-1">
-                                        {fatigueAlerts.slice(1).map((a, i) => (
-                                            <p key={i} className="text-[10px] font-mono text-[var(--fg-30)]">• {a.detail}</p>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
+                    </>
                 )}
 
-                {/* ── CYCLE TRAINING BANNER (female mode) ── */}
-                {w.cycleProfile && (w.status === "not_started" || w.status === "active") && (
-                    <div className={`rounded-2xl border p-4 ${
-                        w.cycleProfile.banner.color === "rose" ? "border-rose-500/15 bg-rose-500/[0.04]" :
-                        w.cycleProfile.banner.color === "emerald" ? "border-emerald-500/15 bg-emerald-500/[0.04]" :
-                        w.cycleProfile.banner.color === "amber" ? "border-amber-500/15 bg-amber-500/[0.04]" :
-                        "border-violet-500/15 bg-violet-500/[0.04]"
-                    }`}>
-                        <div className="flex items-start justify-between gap-3 mb-2">
-                            <div>
-                                <div className="flex items-center gap-2 mb-1">
-                                    <span className={`text-[8px] font-mono tracking-widest uppercase ${
-                                        w.cycleProfile.banner.color === "rose" ? "text-rose-400/60" :
-                                        w.cycleProfile.banner.color === "emerald" ? "text-emerald-400/60" :
-                                        w.cycleProfile.banner.color === "amber" ? "text-amber-400/60" :
-                                        "text-violet-400/60"
-                                    }`}>
-                                        {w.cycleProfile.phase} · Day {w.cycleProfile.cycleDay}
-                                    </span>
-                                    <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded-full ${
-                                        w.cycleProfile.banner.color === "rose" ? "bg-rose-500/10 text-rose-400/50" :
-                                        w.cycleProfile.banner.color === "emerald" ? "bg-emerald-500/10 text-emerald-400/50" :
-                                        w.cycleProfile.banner.color === "amber" ? "bg-amber-500/10 text-amber-400/50" :
-                                        "bg-violet-500/10 text-violet-400/50"
-                                    }`}>
-                                        {w.cycleProfile.styleName}
-                                    </span>
-                                </div>
-                                <p className={`text-sm font-semibold ${
-                                    w.cycleProfile.banner.color === "rose" ? "text-rose-300" :
-                                    w.cycleProfile.banner.color === "emerald" ? "text-emerald-300" :
-                                    w.cycleProfile.banner.color === "amber" ? "text-amber-300" :
-                                    "text-violet-300"
-                                }`}>{w.cycleProfile.banner.headline}</p>
-                            </div>
-                            <div className="text-right shrink-0">
-                                <p className="text-[8px] font-mono text-[var(--fg-20)]">INTENSITY</p>
-                                <p className={`text-lg font-bold font-mono ${
-                                    w.cycleProfile.intensityModifier >= 1.0 ? "text-emerald-400" :
-                                    w.cycleProfile.intensityModifier >= 0.85 ? "text-amber-400" :
-                                    "text-rose-400"
-                                }`}>{Math.round(w.cycleProfile.intensityModifier * 100)}%</p>
-                            </div>
-                        </div>
-                        <p className="text-[10px] text-[var(--fg-35)] leading-relaxed">{w.cycleProfile.banner.detail}</p>
-
-                        {/* Energy Forecast */}
-                        {w.status === "not_started" && w.energyForecast.length > 0 && (
-                            <div className="mt-3 pt-3 border-t border-[var(--fg-04)]">
-                                <p className="text-[8px] font-mono tracking-widest text-[var(--fg-20)] mb-2">7-DAY ENERGY FORECAST</p>
-                                <div className="flex items-end gap-1">
-                                    {w.energyForecast.map((f, i) => {
-                                        const dayLabel = i === 0 ? "Today" : new Date(f.date).toLocaleDateString(undefined, { weekday: "short" }).slice(0, 2);
-                                        const height = f.energyLevel * 20;
-                                        const phaseColor = f.phase === "menstrual" ? "bg-rose-400" : f.phase === "follicular" ? "bg-emerald-400" : f.phase === "ovulation" ? "bg-amber-400" : "bg-violet-400";
-                                        return (
-                                            <div key={f.date} className="flex-1 flex flex-col items-center gap-1">
-                                                <span className="text-[7px] font-mono text-[var(--fg-20)]">{f.label.slice(0, 3)}</span>
-                                                <div className={`w-full rounded-sm ${phaseColor} transition-all`} style={{ height: `${height}%`, minHeight: 4, opacity: i === 0 ? 1 : 0.5 + (f.energyLevel / 10) }} />
-                                                <span className={`text-[8px] font-mono ${i === 0 ? "text-[var(--fg-50)] font-bold" : "text-[var(--fg-20)]"}`}>{dayLabel}</span>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Warm-up & Nutrition tips */}
-                        {w.status === "not_started" && (
-                            <div className="mt-3 pt-3 border-t border-[var(--fg-04)] grid grid-cols-2 gap-2">
-                                <div className="glass-card p-2.5">
-                                    <p className="text-[7px] font-mono tracking-widest text-[var(--fg-20)] mb-1">WARM-UP · {w.cycleProfile.warmUpGuidance.minutes} MIN</p>
-                                    <p className="text-[9px] text-[var(--fg-35)] leading-relaxed">{w.cycleProfile.warmUpGuidance.focus}</p>
-                                </div>
-                                <div className="glass-card p-2.5">
-                                    <p className="text-[7px] font-mono tracking-widest text-[var(--fg-20)] mb-1">NUTRITION TIP</p>
-                                    <p className="text-[9px] text-[var(--fg-35)] leading-relaxed">{w.cycleProfile.nutritionTip}</p>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {/* ── BODY WEIGHT (compact, not_started only) ── */}
-                {w.status === "not_started" && (
-                    <div className="flex items-center gap-3 rounded-xl border border-[var(--fg-05)] bg-[var(--fg-02)] px-4 py-2.5">
-                        <p className="text-[9px] font-mono text-[var(--fg-25)] shrink-0">BODY WEIGHT</p>
-                        <input
-                            type="number" min="0" onWheel={(e) => (e.target as HTMLElement).blur()}
-                            inputMode="decimal"
-                            value={w.preWorkoutWeight}
-                            onChange={(e) => w.setPreWorkoutWeight(e.target.value)}
-                            placeholder="—"
-                            className="flex-1 min-w-0 h-8 rounded-lg bg-[var(--fg-04)] border border-[var(--fg-06)] text-center text-sm font-bold font-mono focus:outline-none focus:border-[rgb(var(--accent-rgb)/0.3)] transition"
-                        />
-                        <span className="text-[10px] font-mono text-[var(--fg-20)] shrink-0">{w.weightUnit}</span>
-                        {w.preWorkoutWeight && !w.weightLogged && (
-                            <button
-                                onClick={w.logBodyWeight}
-                                className="shrink-0 text-[9px] font-mono px-2.5 py-1.5 rounded-lg border border-[rgb(var(--accent-rgb)/0.2)] text-[rgb(var(--accent-rgb))] hover:bg-[rgb(var(--accent-rgb)/0.1)] transition"
-                            >Log</button>
-                        )}
-                        {w.weightLogged && <Check size={14} className="shrink-0 text-[rgb(var(--accent-rgb))]" />}
-                    </div>
-                )}
-
-                {/* ── START WORKOUT HERO ── */}
-                {w.status === "not_started" && (
-                    <div className="relative overflow-hidden rounded-2xl border border-[rgb(var(--accent-rgb)/0.15)] bg-gradient-to-br from-[rgb(var(--accent-rgb)/0.08)] to-transparent">
-                        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgb(var(--accent-rgb)/0.06),transparent_70%)]" />
-                        <div className="relative p-5">
-                            <div className="flex items-center gap-3 mb-4">
-                                <div className="flex items-center gap-2 text-[10px] font-mono text-[var(--fg-30)]">
-                                    <Dumbbell size={14} className="text-[rgb(var(--accent-rgb)/0.5)]" />
-                                    <span>{w.exercisesList.length} exercises</span>
-                                    <span className="text-[var(--fg-10)]">·</span>
-                                    <span>{w.totalPlanned} sets</span>
-                                    <span className="text-[var(--fg-10)]">·</span>
-                                    <span>~{w.totalPlanned * 3}m</span>
-                                </div>
-                            </div>
-
-                            <button onClick={w.startWorkout} className="w-full flex items-center justify-center gap-2.5 text-[15px] font-bold py-4 rounded-xl bg-[rgb(var(--accent-rgb))] text-black hover:brightness-110 active:scale-[0.98] transition-all shadow-[0_0_30px_rgb(var(--accent-rgb)/0.2)]">
-                                <Play size={18} fill="black" /> Begin Session
-                            </button>
-
-                            <div className="flex items-center justify-between mt-3">
-                                <button onClick={() => w.setStatus("freestyle")} className="text-[10px] font-mono text-[var(--fg-20)] hover:text-[var(--fg-50)] transition">
-                                    Train freestyle instead
-                                </button>
-                                <button onClick={() => router.push("/schedule")} className="text-[10px] font-mono text-[rgb(var(--accent-rgb)/0.4)] hover:text-[rgb(var(--accent-rgb)/0.8)] transition">
-                                    View exercises →
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* ── EXERCISE ROTATION (not_started) ── */}
-                {w.status === "not_started" && w.statsLoaded && w.staleExercises.length > 0 && (
-                    <RotationCard exercises={w.staleExercises} onSwap={(exId, exName) => {
-                        const swapTarget = w.exercisesList.find(e => e.body_segment === w.staleExercises.find(s => s.id === exId)?.body_segment);
-                        if (swapTarget) w.handleSwap(swapTarget, { id: exId, name: exName });
-                    }} currentExerciseIds={new Set(w.exercisesList.map(e => e.exercise_id))} />
-                )}
-
-                {/* ── STATS DASHBOARD (not_started) ── */}
-                {w.status === "not_started" && w.statsLoaded && (w.recentSessions.length > 0 || w.weeklyVolumes.some(v => v > 0)) && (
-                    <div className="space-y-3 mt-2">
-                        <p className="text-[9px] font-mono tracking-widest text-[var(--fg-15)] px-1">YOUR TRAINING</p>
-
-                        {/* This Week + Volume side-by-side */}
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="rounded-2xl border border-[var(--fg-06)] bg-[var(--fg-03)] p-3.5">
-                                <p className="text-[8px] font-mono tracking-widest text-[var(--fg-20)] mb-2">THIS WEEK</p>
-                                <p className="text-3xl font-black text-[rgb(var(--accent-light-rgb))] leading-none">{w.weekDays.filter(Boolean).length}</p>
-                                <p className="text-[9px] font-mono text-[var(--fg-20)] mt-1">of 7 days</p>
-                                <div className="flex gap-1 mt-3">
-                                    {["M", "T", "W", "T", "F", "S", "S"].map((day, i) => (
-                                        <div key={i} className={`flex-1 h-1.5 rounded-full transition-all ${
-                                            w.weekDays[i] ? "bg-[rgb(var(--accent-rgb))]" : "bg-[var(--fg-06)]"
-                                        }`} />
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="rounded-2xl border border-[var(--fg-06)] bg-[var(--fg-03)] p-3.5">
-                                <p className="text-[8px] font-mono tracking-widest text-[var(--fg-20)] mb-2">VOLUME</p>
-                                <p className="text-3xl font-black text-[var(--fg-80)] leading-none">
-                                    {w.weeklyVolumes[w.weeklyVolumes.length - 1] > 0 ? `${(w.weeklyVolumes[w.weeklyVolumes.length - 1] / 1000).toFixed(1)}` : "—"}
-                                </p>
-                                <p className="text-[9px] font-mono text-[var(--fg-20)] mt-1">{w.weeklyVolumes[w.weeklyVolumes.length - 1] > 0 ? `k ${w.weightUnit} this week` : "no data yet"}</p>
-                                {w.weeklyVolumes.some(v => v > 0) && (
-                                    <div className="flex items-end gap-0.5 mt-3 h-4">
-                                        {(() => {
-                                            const maxVol = Math.max(...w.weeklyVolumes, 1);
-                                            return w.weeklyVolumes.map((vol, i) => {
-                                                const h = Math.max((vol / maxVol) * 100, 8);
-                                                const isLatest = i === w.weeklyVolumes.length - 1;
-                                                return <div key={i} className={`flex-1 rounded-sm transition-all ${isLatest ? "bg-[rgb(var(--accent-rgb))]" : "bg-[var(--fg-10)]"}`} style={{ height: `${h}%` }} />;
-                                            });
-                                        })()}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Recent Sessions */}
-                        {w.recentSessions.length > 0 && (
-                            <div className="rounded-2xl border border-[var(--fg-06)] bg-[var(--fg-03)] p-4">
-                                <div className="flex items-center justify-between mb-3">
-                                    <p className="text-[8px] font-mono tracking-widest text-[var(--fg-20)]">RECENT</p>
-                                    <button onClick={() => router.push("/progress")} className="text-[9px] font-mono text-[rgb(var(--accent-rgb)/0.4)] hover:text-[rgb(var(--accent-rgb))] transition">All →</button>
-                                </div>
-                                <div className="space-y-1">
-                                    {w.recentSessions.slice(0, 3).map((s) => {
-                                        const d = new Date(s.date + "T12:00:00");
-                                        const now = new Date();
-                                        const diff = Math.floor((now.getTime() - d.getTime()) / 86400000);
-                                        const label = diff === 0 ? "Today" : diff === 1 ? "Yesterday" : d.toLocaleDateString("en-US", { weekday: "short" });
-                                        return (
-                                            <div key={s.id} className="flex items-center gap-3 py-2 border-b border-[var(--fg-03)] last:border-0">
-                                                <div className="w-7 h-7 rounded-lg bg-[rgb(var(--accent-rgb)/0.08)] flex items-center justify-center shrink-0">
-                                                    <Dumbbell size={11} className="text-[rgb(var(--accent-rgb)/0.5)]" />
-                                                </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-[11px] font-medium text-[var(--fg-60)] truncate">{s.title}</p>
-                                                    <p className="text-[9px] font-mono text-[var(--fg-20)]">{label} · {s.sets} sets</p>
-                                                </div>
-                                                <span className="text-[10px] font-bold font-mono text-[rgb(var(--accent-light-rgb)/0.6)] shrink-0">+{s.xp} xp</span>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {/* ── ACTIVE EXERCISE LIST ── */}
-                {w.status === "active" && (
-                    <div className="space-y-3">
-                        {sortedExercises.map((ex, i) => {
-                            const sets = w.logs[ex.id] ?? [];
-                            const workingSetsOnly = sets.filter((s) => !s.is_warmup);
-                            const warmupSetsOnly = sets.filter((s) => s.is_warmup);
-                            const done = workingSetsOnly.filter((s) => s.completed).length;
-                            const warmupDone = warmupSetsOnly.filter((s) => s.completed).length;
-                            const isOpen = w.expandedId === ex.id;
-                            const last = w.lastPerformance[ex.exercise_id];
-                            const hint = w.overloadHints[ex.exercise_id];
-                            const allDone = done === workingSetsOnly.length && workingSetsOnly.length > 0 && warmupDone === warmupSetsOnly.length;
-                            const isSkipped = w.skippedExercises.has(ex.id);
-
-                            const prevEx = i > 0 ? w.exercisesList[i - 1] : null;
-                            const showSupersetConnector = prevEx && prevEx.superset_group != null && prevEx.superset_group === ex.superset_group;
-
-                            return (
-                                <div key={ex.id}>
-                                {showSupersetConnector && (
-                                    <div className="flex items-center justify-center -my-1.5 relative z-10">
-                                        <div className="w-px h-3 bg-fuchsia-400/20" />
-                                        <span className="absolute text-[7px] font-mono text-fuchsia-400/40 bg-[var(--bg-base)] px-1">SUPERSET</span>
-                                    </div>
-                                )}
-                                <div className={`rounded-xl border overflow-hidden transition-all ${isSkipped ? "border-[var(--fg-04)] bg-[var(--fg-01)] opacity-50" : allDone ? "border-[rgb(var(--accent-rgb)/0.2)] bg-[rgb(var(--accent-rgb)/0.03)]" : ex.superset_group != null ? "border-fuchsia-400/15 bg-[var(--fg-03)]" : "border-[var(--fg-06)] bg-[var(--fg-03)]"}`}>
-                                    {/* Exercise header */}
-                                    <div className="w-full flex items-center gap-3 px-4 py-3 text-left">
-                                        <div onClick={() => isSkipped ? w.unskipExercise(ex.id) : w.setExpandedId(isOpen ? null : ex.id)} className="shrink-0 cursor-pointer">
-                                        {ex.image_url && !isSkipped ? (
-                                            <div className={`w-9 h-9 rounded-lg overflow-hidden border ${allDone ? "border-[rgb(var(--accent-rgb)/0.3)]" : "border-[var(--fg-06)]"}`}>
-                                                <img src={ex.image_url} alt="" className={`w-full h-full object-cover ${allDone ? "opacity-60" : ""}`} />
-                                            </div>
-                                        ) : (
-                                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-[10px] font-mono font-bold ${isSkipped ? "bg-[var(--fg-03)] text-[var(--fg-15)] border border-[var(--fg-04)]" : allDone ? "bg-[rgb(var(--accent-rgb)/0.15)] text-[rgb(var(--accent-rgb))] border border-[rgb(var(--accent-rgb)/0.2)]" : "bg-[var(--fg-04)] text-[var(--fg-20)] border border-[var(--fg-06)]"}`}>
-                                                {isSkipped ? <Ban size={12} /> : allDone ? <Check size={14} /> : String(i + 1).padStart(2, "0")}
-                                            </div>
-                                        )}
-                                        </div>
-                                        <div className="flex-1 min-w-0" onClick={() => isSkipped ? w.unskipExercise(ex.id) : w.setExpandedId(isOpen ? null : ex.id)} role="button" tabIndex={0}>
-                                            <div className="flex items-center gap-1.5">
-                                                <span
-                                                    role="link"
-                                                    className={`text-[13px] font-medium inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 -mx-1.5 -my-0.5 cursor-pointer transition ${isSkipped ? "text-[var(--fg-30)] line-through" : "text-[rgb(var(--accent-light-rgb))] active:bg-[rgb(var(--accent-rgb)/0.08)]"}`}
-                                                    onClick={(e) => { if (!isSkipped) { e.stopPropagation(); e.preventDefault(); setDetailExercise(ex); } }}
-                                                >
-                                                    {ex.name}
-                                                    {!isSkipped && <ChevronRight size={11} className="shrink-0 opacity-50" />}
-                                                </span>
-                                                {ex.superset_group != null && !isSkipped && (
-                                                    <span className="shrink-0 text-[8px] font-mono px-1.5 py-0.5 rounded bg-fuchsia-400/10 text-fuchsia-300/60 border border-fuchsia-400/15">SS</span>
-                                                )}
-                                                {w.substitutions[ex.id] && !isSkipped && (
-                                                    <span className="shrink-0 text-[8px] font-mono px-1.5 py-0.5 rounded bg-orange-400/10 text-orange-300/60 border border-orange-400/15">NO GEAR</span>
-                                                )}
-                                                {!last && !isSkipped && !allDone && (
-                                                    <span className="shrink-0 text-[8px] font-mono px-1.5 py-0.5 rounded bg-emerald-400/10 text-emerald-300/60 border border-emerald-400/15">NEW</span>
-                                                )}
-                                            </div>
-                                            <p className="text-[9px] font-mono text-[var(--fg-25)]">
-                                                {isSkipped ? "Skipped" : `${done}/${workingSetsOnly.length} sets${warmupSetsOnly.length > 0 ? ` + ${warmupDone}/${warmupSetsOnly.length} warm-up` : ""}${last ? ` · Last: ${last.weight != null ? kgToUnit(last.weight, w.weightUnit) : "—"}${ex.isCardio ? "" : ex.isBodyweight ? " BW" : w.weightUnit} × ${last.reps ?? "—"}` : ""}`}
-                                            </p>
-                                        </div>
-                                        <div onClick={() => isSkipped ? w.unskipExercise(ex.id) : w.setExpandedId(isOpen ? null : ex.id)} className="shrink-0 cursor-pointer p-1">
-                                        {isSkipped ? (
-                                            <span className="text-[9px] font-mono text-[var(--fg-20)]">tap to undo</span>
-                                        ) : (
-                                            <ChevronDown size={14} className={`text-[var(--fg-15)] transition-transform ${isOpen ? "rotate-180" : ""}`} />
-                                        )}
-                                        </div>
-                                    </div>
-
-                                    {/* Expanded content */}
-                                    {isOpen && !isSkipped && (
-                                        <div className="border-t border-[var(--fg-04)]">
-                                            {/* Overload hint */}
-                                            {hint && hint.type !== "first_time" && (
-                                                <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg bg-[rgb(var(--accent-rgb)/0.05)] border border-[rgb(var(--accent-rgb)/0.1)] px-3 py-2">
-                                                    <TrendingUp size={11} className="text-[rgb(var(--accent-rgb)/0.5)] shrink-0" />
-                                                    <p className="text-[10px] font-mono text-[rgb(var(--accent-rgb)/0.6)]">{hint.text}</p>
-                                                </div>
-                                            )}
-
-                                            {/* Injury risk indicator */}
-                                            {w.exerciseRisks[ex.id] && (
-                                                <div className="mx-4 mt-3 flex items-start gap-2 rounded-lg bg-amber-500/[0.06] border border-amber-500/15 px-3 py-2">
-                                                    <span className="text-amber-400 mt-0.5 shrink-0">⚠</span>
-                                                    <div>
-                                                        <p className="text-[10px] font-mono text-amber-400/70">{w.exerciseRisks[ex.id].reason}</p>
-                                                        <p className="text-[9px] font-mono text-amber-400/40 mt-0.5">Alternative: {w.exerciseRisks[ex.id].alternative}</p>
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            {/* Cycle-adjusted weight suggestion */}
-                                            {w.cycleProfile && !ex.isCardio && !ex.isBodyweight && w.lastPerformance[ex.exercise_id]?.weight && (() => {
-                                                const adj = getCycleAdjustedWeight(w.lastPerformance[ex.exercise_id].weight, w.cycleProfile!.intensityModifier);
-                                                return adj.label ? (
-                                                    <div className={`mx-4 mt-2 flex items-center gap-2 rounded-lg px-3 py-1.5 ${
-                                                        w.cycleProfile!.intensityModifier >= 1.0 ? "bg-emerald-500/[0.05] border border-emerald-500/10" : "bg-violet-500/[0.05] border border-violet-500/10"
-                                                    }`}>
-                                                        <p className={`text-[9px] font-mono ${w.cycleProfile!.intensityModifier >= 1.0 ? "text-emerald-400/60" : "text-violet-400/60"}`}>
-                                                            {adj.label}
-                                                        </p>
-                                                    </div>
-                                                ) : null;
-                                            })()}
-
-                                            {/* Smart substitution suggestions */}
-                                            {w.substitutions[ex.id] && (
-                                                <div className="mx-4 mt-2 rounded-lg bg-orange-400/[0.04] border border-orange-400/10 p-3">
-                                                    <p className="text-[9px] font-mono text-orange-300/60 mb-2">
-                                                        <Dumbbell size={9} className="inline mr-1" />
-                                                        {ex.equipment} not in your gear — try:
-                                                    </p>
-                                                    <div className="space-y-1.5">
-                                                        {w.substitutions[ex.id].map((sub) => (
-                                                            <button
-                                                                key={sub.exercise.id}
-                                                                onClick={() => w.handleSwap(ex, { id: sub.exercise.id, name: sub.exercise.name })}
-                                                                className="w-full flex items-center justify-between gap-2 rounded-md bg-[var(--fg-03)] border border-[var(--fg-06)] px-3 py-2 hover:border-emerald-400/20 hover:bg-emerald-400/[0.04] transition group"
-                                                            >
-                                                                <div className="min-w-0">
-                                                                    <p className="text-xs text-[var(--fg-80)] font-medium truncate">{sub.exercise.name}</p>
-                                                                    <p className="text-[9px] font-mono text-[var(--fg-30)]">{sub.reason} · {sub.exercise.equipment}</p>
-                                                                </div>
-                                                                <span className="text-[9px] font-mono text-emerald-400/50 group-hover:text-emerald-400/80 shrink-0">Swap →</span>
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            {/* Swap / Skip / Remove / Warm-up */}
-                                            <div className="px-4 pt-2.5 pb-1 flex items-center gap-3">
-                                                <button onClick={() => w.setSwapTargetId(ex.id)} className="flex items-center gap-1.5 text-[var(--fg-40)] text-[10px] font-mono hover:text-emerald-400 active:scale-95 transition px-2 py-1.5 rounded-md hover:bg-emerald-400/10">
-                                                    <RefreshCw size={11} /> Swap
-                                                </button>
-                                                <button onClick={() => w.skipExercise(ex.id)} className="flex items-center gap-1.5 text-[var(--fg-40)] text-[10px] font-mono hover:text-amber-400 active:scale-95 transition px-2 py-1.5 rounded-md hover:bg-amber-400/10">
-                                                    <SkipForward size={11} /> Skip
-                                                </button>
-                                                {done === 0 && (
-                                                    <button onClick={() => w.removeExercise(ex.id)} className="flex items-center gap-1.5 text-[var(--fg-40)] text-[10px] font-mono hover:text-red-400 active:scale-95 transition px-2 py-1.5 rounded-md hover:bg-red-400/10">
-                                                        <X size={11} /> Remove
-                                                    </button>
-                                                )}
-                                                {!ex.isCardio && (
-                                                    <button onClick={() => setFormCheckExercise(ex.name)} className="flex items-center gap-1.5 text-[var(--fg-40)] text-[10px] font-mono hover:text-cyan-400 active:scale-95 transition px-2 py-1.5 rounded-md hover:bg-cyan-400/10">
-                                                        <Camera size={11} /> Form
-                                                    </button>
-                                                )}
-                                                {!ex.isCardio && !ex.isBodyweight && (
-                                                    <button onClick={() => w.toggleWarmup(ex)} className={`flex items-center gap-1.5 text-[10px] font-mono transition ml-auto px-2 py-1.5 rounded-md active:scale-95 ${w.warmupExercises.has(ex.id) ? "text-amber-400 bg-amber-400/10 hover:bg-amber-400/15" : "text-[var(--fg-40)] hover:text-amber-400 hover:bg-amber-400/10"}`}>
-                                                        <Flame size={11} />
-                                                        {w.warmupExercises.has(ex.id) ? "Remove Warm-up" : "Add Warm-up"}
-                                                    </button>
-                                                )}
-                                            </div>
-
-                                            {ex.isCardio ? (
-                                                /* ── CARDIO: single entry, no sets ── */
-                                                <div className="px-4 pb-4 pt-2 space-y-3">
-                                                    {(() => {
-                                                        const cs = sets[0];
-                                                        const dur = Number(cs?.duration) || 0;
-                                                        const spd = Number(cs?.weight) || 0;
-                                                        const dist = Number(cs?.distance) || 0;
-                                                        const incl = Number(cs?.reps) || 0;
-                                                        const inputCls = "w-full h-12 rounded-lg bg-[var(--fg-04)] border border-[var(--fg-08)] text-center text-xl font-bold font-mono focus:outline-none focus:border-[rgb(var(--accent-rgb)/0.4)] disabled:opacity-40 transition";
-                                                        const autoCalcDistance = (newDur: number, newSpd: number) => {
-                                                            if (newDur > 0 && newSpd > 0) w.updateSet(ex.id, 0, "distance", String(Math.round(newSpd * (newDur / 60) * 100) / 100));
-                                                        };
-                                                        const equivDist = dist > 0 && incl > 0 ? Math.round(dist * (1 + incl * 0.03) * 100) / 100 : 0;
-                                                        return (
-                                                            <>
-                                                                <div className="grid grid-cols-2 gap-2">
-                                                                    <div>
-                                                                        <p className="text-[8px] font-mono text-[var(--fg-30)] mb-1">DURATION (MIN)</p>
-                                                                        <input type="number" min="0" inputMode="numeric" onWheel={(e) => (e.target as HTMLElement).blur()}
-                                                                            value={cs?.duration ?? ""}
-                                                                            onChange={(e) => { w.updateSet(ex.id, 0, "duration", e.target.value); autoCalcDistance(Number(e.target.value) || 0, spd); }}
-                                                                            disabled={cs?.completed} placeholder="—" className={inputCls} />
-                                                                    </div>
-                                                                    <div>
-                                                                        <p className="text-[8px] font-mono text-[var(--fg-30)] mb-1">DISTANCE (KM)</p>
-                                                                        <input type="number" min="0" inputMode="decimal" onWheel={(e) => (e.target as HTMLElement).blur()}
-                                                                            value={cs?.distance ?? ""}
-                                                                            onChange={(e) => {
-                                                                                w.updateSet(ex.id, 0, "distance", e.target.value);
-                                                                                const newDist = Number(e.target.value) || 0;
-                                                                                if (dur > 0 && newDist > 0) w.updateSet(ex.id, 0, "weight", String(Math.round(newDist / (dur / 60) * 10) / 10));
-                                                                            }}
-                                                                            disabled={cs?.completed} placeholder="auto" className={inputCls} />
-                                                                    </div>
-                                                                    <div>
-                                                                        <p className="text-[8px] font-mono text-[var(--fg-30)] mb-1">SPEED (KM/H)</p>
-                                                                        <input type="number" min="0" inputMode="decimal" onWheel={(e) => (e.target as HTMLElement).blur()}
-                                                                            value={cs?.weight ?? ""}
-                                                                            onChange={(e) => { w.updateSet(ex.id, 0, "weight", e.target.value); autoCalcDistance(dur, Number(e.target.value) || 0); }}
-                                                                            disabled={cs?.completed} placeholder="—" className={inputCls} />
-                                                                    </div>
-                                                                    <div>
-                                                                        <p className="text-[8px] font-mono text-[var(--fg-30)] mb-1">INCLINE (%)</p>
-                                                                        <input type="number" min="0" inputMode="decimal" onWheel={(e) => (e.target as HTMLElement).blur()}
-                                                                            value={cs?.reps ?? ""}
-                                                                            onChange={(e) => w.updateSet(ex.id, 0, "reps", e.target.value)}
-                                                                            disabled={cs?.completed} placeholder="—" className={inputCls} />
-                                                                    </div>
-                                                                </div>
-                                                                {equivDist > 0 && (
-                                                                    <p className="text-[8px] font-mono text-[var(--fg-25)] text-center">
-                                                                        ≈ {equivDist} km equivalent flat distance ({incl}% grade)
-                                                                    </p>
-                                                                )}
-                                                            </>
-                                                        );
-                                                    })()}
-                                                    <input
-                                                        type="text"
-                                                        value={sets[0]?.note ?? ""}
-                                                        onChange={(e) => w.updateSet(ex.id, 0, "note", e.target.value)}
-                                                        disabled={sets[0]?.completed}
-                                                        placeholder="Notes (optional)"
-                                                        className="w-full text-[10px] font-mono rounded-lg bg-transparent border border-[var(--fg-06)] px-3 py-2 text-[var(--fg-40)] placeholder:text-[var(--fg-15)] focus:outline-none focus:border-[rgb(var(--accent-rgb)/0.2)] disabled:opacity-40 transition"
-                                                    />
-                                                    {!sets[0]?.completed ? (
-                                                        <button
-                                                            onClick={() => w.completeSet(ex, 0)}
-                                                            className="w-full text-[10px] font-mono font-bold py-3 rounded-lg border border-[rgb(var(--accent-rgb)/0.3)] bg-[rgb(var(--accent-rgb)/0.1)] text-[rgb(var(--accent-light-rgb))] hover:bg-[rgb(var(--accent-rgb)/0.15)] transition"
-                                                        >
-                                                            LOG CARDIO ✓
-                                                        </button>
-                                                    ) : (
-                                                        <button
-                                                            onClick={() => w.editSet(ex.id, 0)}
-                                                            className="w-full flex items-center justify-center gap-2 text-[10px] font-mono text-[rgb(var(--accent-light-rgb)/0.5)] hover:text-[rgb(var(--accent-light-rgb)/0.8)] py-2 transition"
-                                                        >
-                                                            <Pencil size={10} /> ✓ Logged — tap to edit
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            ) : (
-                                                /* ── STRENGTH / BODYWEIGHT: set-based ── */
-                                                <div className="px-4 pb-4 space-y-1 border-t border-[var(--fg-06)] pt-3">
-                                                    {/* Column headers */}
-                                                    <div className="flex items-center gap-1.5 sm:gap-2 text-[8px] font-mono text-[var(--fg-25)] tracking-wider mb-0.5">
-                                                        {editingExId === ex.id ? <span className="w-6" /> : null}
-                                                        <span className="w-6 sm:w-7" />
-                                                        {ex.isBodyweight ? (
-                                                            <span className="flex-1 text-center">REPS</span>
-                                                        ) : (
-                                                            <>
-                                                                <span className="flex-1 text-center">
-                                                                    {w.weightUnit.toUpperCase()}
-                                                                    {isDualWeight(ex) && <span className="text-[rgb(var(--accent-rgb))] font-bold ml-1">/ SIDE</span>}
-                                                                </span>
-                                                                <span className="flex-1 text-center">REPS</span>
-                                                            </>
-                                                        )}
-                                                        <span className="w-9 sm:w-11" />
-                                                    </div>
-
-                                                    {sets.map((s, si) => {
-                                                        const isWarmup = !!s.is_warmup;
-                                                        const isDrop = s.set_type === "drop";
-                                                        const isRestPause = s.set_type === "rest_pause";
-                                                        const warmupCount = sets.filter((x) => x.is_warmup).length;
-                                                        const workingIdx = isWarmup ? -1 : s.index - warmupCount;
-                                                        const displayNum = isWarmup ? `W${si + 1}` : isDrop ? "D" : isRestPause ? "RP" : String(workingIdx + 1);
-                                                        const prevSets = w.lastSets[ex.exercise_id] ?? [];
-                                                        const prevSet = !isWarmup ? prevSets[workingIdx] : undefined;
-                                                        const prevW = prevSet?.weight != null ? String(kgToUnit(prevSet.weight, w.weightUnit)) : "";
-                                                        const prevR = prevSet?.reps != null ? String(prevSet.reps) : "";
-                                                        const completedWorking = sets.filter((x) => !x.is_warmup && x.completed);
-                                                        const lastCompleted = completedWorking.length > 0 ? completedWorking[completedWorking.length - 1] : null;
-                                                        const hasPrev = !!(prevW && prevR);
-                                                        const userTyped = !!(s.weight || s.reps);
-                                                        const showQuickLog = !s.completed && !isWarmup && !ex.isCardio;
-                                                        const dualWt = isDualWeight(ex);
-                                                        const setVol = s.completed && s.weight && s.reps ? Number(s.weight) * Number(s.reps) * (dualWt ? 2 : 1) : 0;
-                                                        const weightIncrement = w.weightUnit === "kg" ? 2.5 : 5;
-                                                        const isDeleting = editingExId === ex.id;
-                                                        const inputCls = (warm: boolean) => `flex-1 min-w-0 h-10 sm:h-11 rounded-lg border text-center text-sm sm:text-base font-bold font-mono focus:outline-none disabled:opacity-40 transition ${warm ? "bg-amber-400/[0.03] border-amber-400/[0.1] focus:border-amber-400/30" : isDrop ? "bg-orange-400/[0.03] border-orange-400/[0.1] focus:border-orange-400/30" : isRestPause ? "bg-violet-400/[0.03] border-violet-400/[0.1] focus:border-violet-400/30" : "bg-[var(--fg-04)] border-[var(--fg-08)] focus:border-[rgb(var(--accent-rgb)/0.4)] focus:bg-[rgb(var(--accent-rgb))]/[0.03]"}`;
-                                                        const chipCls = "h-9 sm:h-10 rounded-full text-center text-sm sm:text-base font-bold font-mono";
-                                                        return (
-                                                        <div key={s.index} className={isWarmup ? "rounded-lg bg-amber-400/[0.04] border border-amber-400/[0.08] px-1 py-0.5" : isDrop ? "rounded-lg bg-orange-400/[0.04] border border-orange-400/[0.08] px-1 py-0.5" : isRestPause ? "rounded-lg bg-violet-400/[0.04] border border-violet-400/[0.08] px-1 py-0.5" : ""}>
-                                                            {/* Set row: optional delete × + set content */}
-                                                            <div className="flex items-center gap-1">
-                                                                {/* Delete button (edit mode) */}
-                                                                {isDeleting && (
-                                                                    <button
-                                                                        onClick={() => w.removeSet(ex.id, s.index)}
-                                                                        className="w-6 h-6 shrink-0 rounded-full bg-red-500/15 border border-red-500/30 flex items-center justify-center text-red-400 hover:bg-red-500/25 active:scale-90 transition"
-                                                                    >
-                                                                        <X size={12} />
-                                                                    </button>
-                                                                )}
-                                                                <div className="flex-1 min-w-0">
-                                                                {/* ── COMPLETED WORKING SET — chip/tag style ── */}
-                                                                {s.completed && !isWarmup ? (
-                                                                    <button
-                                                                        onClick={() => !isDeleting && w.editSet(ex.id, s.index)}
-                                                                        className="w-full flex items-center gap-1.5 sm:gap-2 group rounded-lg py-1.5 px-1 relative overflow-visible hover:brightness-110 active:scale-[0.99] transition"
-                                                                    >
-                                                                        <div className="absolute left-0 top-1 bottom-1 w-[2px] rounded-full" style={{ background: "rgb(var(--accent-rgb) / 0.5)" }} />
-                                                                        {/* Set number in accent circle */}
-                                                                        <div className="w-6 sm:w-7 h-6 sm:h-7 shrink-0 rounded-full flex items-center justify-center text-[10px] font-mono font-bold" style={{ background: "rgb(var(--accent-rgb) / 0.15)", color: "rgb(var(--accent-light-rgb))" }}>
-                                                                            {displayNum}
-                                                                        </div>
-                                                                        {/* Weight chip */}
-                                                                        {!ex.isBodyweight && (
-                                                                            <div className={`flex-1 ${chipCls} flex items-center justify-center gap-1 rounded-lg`} style={{ background: "rgb(var(--accent-rgb) / 0.06)", border: "1px solid rgb(var(--accent-rgb) / 0.12)" }}>
-                                                                                <span className="text-[var(--fg-80)]">{s.weight}</span>
-                                                                                {dualWt && (
-                                                                                    <span className="text-[8px] font-bold px-1 py-px rounded" style={{ background: "rgb(var(--accent-rgb) / 0.2)", color: "rgb(var(--accent-light-rgb))" }}>×2</span>
-                                                                                )}
-                                                                            </div>
-                                                                        )}
-                                                                        {/* Reps chip */}
-                                                                        <div className={`flex-1 ${chipCls} flex items-center justify-center rounded-lg`} style={{ background: "rgb(var(--accent-rgb) / 0.06)", border: "1px solid rgb(var(--accent-rgb) / 0.12)" }}>
-                                                                            <span className="text-[var(--fg-80)]">{s.reps}</span>
-                                                                            {ex.isBodyweight && <span className="text-[10px] font-mono text-[var(--fg-30)] ml-1">reps</span>}
-                                                                        </div>
-                                                                        {/* Volume + pencil + delta */}
-                                                                        <div className="flex flex-col items-center shrink-0 w-9 sm:w-11">
-                                                                            <Pencil size={12} className="text-[var(--fg-15)] group-hover:text-[rgb(var(--accent-light-rgb))] transition" />
-                                                                            {setVol > 0 && (
-                                                                                <span className="text-[7px] font-mono text-[var(--fg-15)] mt-0.5">{Math.round(setVol)}</span>
-                                                                            )}
-                                                                        </div>
-                                                                        {/* Delta vs last session */}
-                                                                        {(() => {
-                                                                            if (!prevSet || !s.completed || isWarmup || isDrop || isRestPause) return null;
-                                                                            const curW = Number(s.weight) || 0;
-                                                                            const curR = Number(s.reps) || 0;
-                                                                            const pW = prevSet.weight ?? 0;
-                                                                            const pR = prevSet.reps ?? 0;
-                                                                            if (!pW && !pR) return null;
-                                                                            const wDiff = curW - kgToUnit(pW, w.weightUnit);
-                                                                            const rDiff = curR - pR;
-                                                                            if (wDiff === 0 && rDiff === 0) return null;
-                                                                            const isUp = wDiff > 0 || (wDiff === 0 && rDiff > 0);
-                                                                            const label = wDiff !== 0 ? `${wDiff > 0 ? "+" : ""}${wDiff}${w.weightUnit}` : `${rDiff > 0 ? "+" : ""}${rDiff}rep`;
-                                                                            return (
-                                                                                <span className={`absolute -top-1 -right-1 text-[7px] font-mono font-bold px-1 py-px rounded ${isUp ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>
-                                                                                    {label}
-                                                                                </span>
-                                                                            );
-                                                                        })()}
-                                                                    </button>
-                                                                ) : s.completed && isWarmup ? (
-                                                                    /* ── COMPLETED WARMUP ── */
-                                                                    <div className="flex items-center gap-1.5 sm:gap-2 opacity-50">
-                                                                        <span className="text-[10px] font-mono w-6 sm:w-7 text-center shrink-0 text-amber-400/50">{displayNum}</span>
-                                                                        {s.warmup_label && <span className="text-[8px] font-mono text-amber-400/50 w-8 shrink-0">{s.warmup_label}</span>}
-                                                                        <span className="flex-1 text-center text-xs font-mono text-amber-400/40">{s.weight} × {s.reps}</span>
-                                                                        <div className="w-9 h-9 sm:w-11 sm:h-11 shrink-0 rounded-lg border border-amber-400/30 bg-amber-400/10 flex items-center justify-center text-amber-400"><Check size={14} /></div>
-                                                                    </div>
-                                                                ) : (
-                                                                /* ── INCOMPLETE SET — input mode ── */
-                                                                <SwipeSet completed={false} onComplete={() => completeWithRpe(ex, s.index)}>
-                                                                    <div className={`flex items-center gap-1.5 sm:gap-2 ${isWarmup ? "bg-transparent" : isDrop || isRestPause ? "bg-transparent" : "bg-[var(--bg-elevated)]"}`}>
-                                                                        <span className={`text-[10px] font-mono w-6 sm:w-7 text-center shrink-0 ${isWarmup ? "text-amber-400/50" : isDrop ? "text-orange-400/50" : isRestPause ? "text-violet-400/50" : "text-[var(--fg-25)]"}`}>
-                                                                            {displayNum}
-                                                                        </span>
-                                                                        {isWarmup && s.warmup_label && (
-                                                                            <span className="text-[8px] font-mono text-amber-400/50 w-8 shrink-0">{s.warmup_label}</span>
-                                                                        )}
-                                                                        {ex.isBodyweight ? (
-                                                                            <input type="number" min="0" inputMode="numeric" onWheel={(e) => (e.target as HTMLElement).blur()} placeholder={prevR || "—"} value={s.reps} onChange={(e) => w.updateSet(ex.id, s.index, "reps", e.target.value)}
-                                                                                className={inputCls(isWarmup)} />
-                                                                        ) : (
-                                                                            <>
-                                                                                <div className="flex-1 min-w-0 relative">
-                                                                                    <input type="number" min="0" inputMode="decimal" onWheel={(e) => (e.target as HTMLElement).blur()} placeholder={prevW || "—"} value={s.weight} onChange={(e) => w.updateSet(ex.id, s.index, "weight", e.target.value)}
-                                                                                        className={`w-full h-10 sm:h-11 rounded-lg border text-center text-sm sm:text-base font-bold font-mono focus:outline-none disabled:opacity-40 transition ${isWarmup ? "bg-amber-400/[0.03] border-amber-400/[0.1] focus:border-amber-400/30" : "bg-[var(--fg-04)] border-[var(--fg-08)] focus:border-[rgb(var(--accent-rgb)/0.4)] focus:bg-[rgb(var(--accent-rgb))]/[0.03]"}`} />
-                                                                                    {dualWt && (
-                                                                                        <span className="absolute right-1 top-0.5 text-[7px] font-mono font-bold px-1 rounded" style={{ background: "rgb(var(--accent-rgb) / 0.12)", color: "rgb(var(--accent-light-rgb) / 0.7)" }}>/ side</span>
-                                                                                    )}
-                                                                                </div>
-                                                                                <input type="number" min="0" inputMode="numeric" onWheel={(e) => (e.target as HTMLElement).blur()} placeholder={prevR || "—"} value={s.reps} onChange={(e) => w.updateSet(ex.id, s.index, "reps", e.target.value)}
-                                                                                    className={inputCls(isWarmup)} />
-                                                                            </>
-                                                                        )}
-                                                                        <button
-                                                                            onClick={() => completeWithRpe(ex, s.index)}
-                                                                            className={`w-9 h-9 sm:w-11 sm:h-11 shrink-0 rounded-lg border flex items-center justify-center transition ${
-                                                                                isWarmup ? "border-amber-400/15 text-amber-400/30 hover:border-amber-400/40 hover:text-amber-400/70 active:scale-95" : "border-[var(--fg-10)] text-[var(--fg-20)] hover:border-[rgb(var(--accent-rgb)/0.4)] hover:text-[rgb(var(--accent-light-rgb))] hover:bg-[rgb(var(--accent-rgb))]/[0.05] active:scale-95"
-                                                                            }`}
-                                                                        >
-                                                                            <Check size={16} />
-                                                                        </button>
-                                                                    </div>
-                                                                </SwipeSet>
-                                                                )}
-                                                                </div>
-                                                            </div>
-                                                            {/* ── RPE prompt (after manual completion) ── */}
-                                                            {rpePrompt?.exId === ex.id && rpePrompt.setIdx === s.index && s.completed && !isWarmup && (
-                                                                <div className="flex items-center gap-1 ml-7 sm:ml-8 mt-1 animate-[fadeInUp_0.15s_ease]">
-                                                                    <span className="text-[8px] font-mono text-[var(--fg-20)] mr-1">RPE</span>
-                                                                    {[6, 7, 8, 9, 10].map((v) => (
-                                                                        <button key={v} onClick={() => handleRpe(v)}
-                                                                            className={`w-7 h-7 rounded-full text-[10px] font-mono font-bold border transition active:scale-90 ${
-                                                                                v <= 7 ? "border-emerald-500/20 text-emerald-400/70 hover:bg-emerald-500/10" :
-                                                                                v <= 8 ? "border-amber-500/20 text-amber-400/70 hover:bg-amber-500/10" :
-                                                                                "border-red-500/20 text-red-400/70 hover:bg-red-500/10"
-                                                                            }`}
-                                                                        >{v}</button>
-                                                                    ))}
-                                                                </div>
-                                                            )}
-                                                            {/* ── RPE badge on completed set ── */}
-                                                            {s.completed && !isWarmup && s.rpe && !(rpePrompt?.exId === ex.id && rpePrompt.setIdx === s.index) && (
-                                                                <div className="ml-7 sm:ml-8 mt-0.5">
-                                                                    <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded-full border ${
-                                                                        s.rpe <= 7 ? "border-emerald-500/15 text-emerald-400/50 bg-emerald-500/[0.04]" :
-                                                                        s.rpe <= 8 ? "border-amber-500/15 text-amber-400/50 bg-amber-500/[0.04]" :
-                                                                        "border-red-500/15 text-red-400/50 bg-red-500/[0.04]"
-                                                                    }`}>RPE {s.rpe}</span>
-                                                                </div>
-                                                            )}
-                                                            {/* ── Quick-log area (below the set row) ── */}
-                                                            {showQuickLog && !isDeleting && (
-                                                                <div className="mt-1.5 ml-7 sm:ml-8 space-y-1.5" style={{ width: "calc(100% - 32px)" }}>
-                                                                    {/* Auto-fill hint when prior data exists */}
-                                                                    {hasPrev && !userTyped && (
-                                                                        <span className="block text-[8px] font-mono text-[var(--fg-20)] -mt-0.5 mb-1">
-                                                                            tap ✓ to log {prevW}{w.weightUnit} × {prevR} from last session
-                                                                        </span>
-                                                                    )}
-                                                                    {/* Repeat last completed set (for sets 2+) */}
-                                                                    {lastCompleted && workingIdx > 0 && !userTyped && (
-                                                                        <button
-                                                                            onClick={() => completeWithRpe(ex, s.index, { weight: lastCompleted.weight, reps: lastCompleted.reps })}
-                                                                            className="w-full flex items-center justify-between gap-2 py-2 px-3 rounded-lg border border-[var(--fg-08)] bg-[var(--fg-03)] text-[var(--fg-50)] hover:text-[var(--fg-80)] hover:bg-[var(--fg-06)] active:scale-[0.98] transition"
-                                                                        >
-                                                                            <span className="text-[11px] font-mono font-medium flex items-center gap-1.5">
-                                                                                <RefreshCw size={10} className="opacity-40" />
-                                                                                Repeat — {!ex.isBodyweight ? `${lastCompleted.weight}${w.weightUnit} × ` : ""}{lastCompleted.reps}
-                                                                            </span>
-                                                                            <Check size={12} className="opacity-30" />
-                                                                        </button>
-                                                                    )}
-                                                                    {/* Progressive overload chips — show computed value */}
-                                                                    {hasPrev && !userTyped && (
-                                                                        <div className="flex items-center gap-1.5">
-                                                                            {!ex.isBodyweight && (
-                                                                                <button onClick={() => completeWithRpe(ex, s.index, { weight: String(Number(prevW) + weightIncrement), reps: prevR }, true)} className="flex-1 text-[10px] font-mono font-medium py-2 rounded-lg border border-emerald-500/15 bg-emerald-500/[0.04] text-emerald-400/80 hover:bg-emerald-500/[0.1] active:scale-[0.98] transition">
-                                                                                    +{weightIncrement}{w.weightUnit} → {Number(prevW) + weightIncrement}
-                                                                                </button>
-                                                                            )}
-                                                                            <button onClick={() => completeWithRpe(ex, s.index, { weight: prevW, reps: String(Number(prevR) + 1) }, true)} className="flex-1 text-[10px] font-mono font-medium py-2 rounded-lg border border-emerald-500/15 bg-emerald-500/[0.04] text-emerald-400/80 hover:bg-emerald-500/[0.1] active:scale-[0.98] transition">
-                                                                                +1 rep → {Number(prevR) + 1}
-                                                                            </button>
-                                                                        </div>
-                                                                    )}
-                                                                    <input type="text" value={s.note} onChange={(e) => w.updateSet(ex.id, s.index, "note", e.target.value)} placeholder="Note (optional)"
-                                                                        className="w-full text-[10px] font-mono rounded-md bg-transparent border border-[var(--fg-04)] px-2 py-1 text-[var(--fg-30)] placeholder:text-[var(--fg-15)] focus:outline-none focus:border-[rgb(var(--accent-rgb)/0.2)] focus:text-[var(--fg-50)] transition" />
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                        );
-                                                    })}
-
-                                                    {/* Add / Remove / Drop / Rest-Pause controls */}
-                                                    <div className="flex items-center gap-3 pt-1 ml-5 sm:ml-7 flex-wrap">
-                                                        <button onClick={() => w.addSet(ex.id)} className="flex items-center gap-1.5 text-[rgb(var(--accent-light-rgb)/0.6)] text-[10px] font-mono hover:text-[rgb(var(--accent-light-rgb))] transition">
-                                                            <Plus size={12} /> Add set
-                                                        </button>
-                                                        {!ex.isCardio && workingSetsOnly.some((s) => s.completed) && (
-                                                            <>
-                                                                <button onClick={() => w.addDropSet(ex.id)} className="flex items-center gap-1.5 text-[10px] font-mono text-orange-400/50 hover:text-orange-400/80 transition">
-                                                                    <ChevronDown size={10} /> Drop set
-                                                                </button>
-                                                                <button onClick={() => w.addRestPauseSet(ex.id)} className="flex items-center gap-1.5 text-[10px] font-mono text-violet-400/50 hover:text-violet-400/80 transition">
-                                                                    <Pause size={10} /> Rest-pause
-                                                                </button>
-                                                            </>
-                                                        )}
-                                                        {sets.length > 1 && (
-                                                            <button
-                                                                onClick={() => setEditingExId(editingExId === ex.id ? null : ex.id)}
-                                                                className={`flex items-center gap-1 text-[10px] font-mono transition ${editingExId === ex.id ? "text-red-400" : "text-[var(--fg-25)] hover:text-[var(--fg-50)]"}`}
-                                                            >
-                                                                {editingExId === ex.id ? (
-                                                                    <><Check size={12} /> Done</>
-                                                                ) : (
-                                                                    <><Minus size={12} /> Remove set</>
-                                                                )}
-                                                            </button>
-                                                        )}
-                                                    </div>
-
-                                                    {allDone && !w.confirmedExercises.has(ex.id) && (
-                                                        <button
-                                                            onClick={() => w.confirmExercise(ex.id)}
-                                                            className="w-full mt-3 text-[10px] font-mono font-bold py-2.5 rounded-lg border border-[rgb(var(--accent-rgb)/0.3)] bg-[rgb(var(--accent-rgb)/0.1)] text-[rgb(var(--accent-light-rgb))] hover:bg-[rgb(var(--accent-rgb)/0.15)] transition"
-                                                        >
-                                                            CONFIRM & NEXT EXERCISE →
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                                </div>
-                            );
-                        })}
-
-                        <button onClick={() => w.setShowAddModal(true)} className="flex items-center gap-2 text-[var(--fg-20)] text-xs font-mono hover:text-[var(--fg-50)] transition py-2">
-                            <Plus size={14} /> Add exercise
-                        </button>
-                    </div>
-                )}
-            </div>
-
-            {/* ── UNDO TOAST ── */}
-            {w.lastAction && w.status === "active" && (
-                <div className="fixed bottom-28 md:bottom-20 left-1/2 -translate-x-1/2 z-40 animate-[fadeInUp_0.2s_ease] max-w-[90vw]">
-                    <div className="flex items-center gap-3 rounded-xl border border-[var(--fg-08)] px-4 py-2.5 shadow-lg backdrop-blur-xl" style={{ background: "var(--bg-card)" }}>
-                        <div className="flex flex-col gap-0.5 min-w-0">
-                            <span className="text-[10px] font-mono text-[rgb(var(--accent-light-rgb))] truncate">
-                                {w.lastAction.exName}
-                            </span>
-                            <span className="text-[9px] font-mono text-[var(--fg-30)]">
-                                {w.lastAction.weight ? `${w.lastAction.weight} × ` : ""}{w.lastAction.reps} reps logged
-                            </span>
-                        </div>
-                        <button onClick={w.undoLastSet} className="flex items-center gap-1.5 text-[10px] font-mono font-bold px-3 py-1.5 rounded-lg border border-[var(--fg-10)] text-[var(--fg-50)] hover:text-[var(--fg-80)] hover:bg-[var(--fg-05)] active:scale-95 transition shrink-0">
-                            <Undo2 size={12} />
-                            Undo
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {/* ── REST TIMER (sticky bottom) ── */}
-            {w.restRemaining !== null && w.status === "active" && (
-                <div className="fixed bottom-16 md:bottom-6 left-0 right-0 md:left-1/2 md:-translate-x-1/2 md:max-w-sm md:rounded-xl z-30">
-                    <div className="border-t md:border border-[var(--fg-08)] bg-[var(--bg-card)] backdrop-blur-xl px-5 py-3.5 flex items-center justify-between md:rounded-xl">
+                {/* ═══ PLANS TAB ═══ */}
+                {tab === "plans" && (
+                    <>
+                        {/* Quick-start templates */}
                         <div>
-                            <p className="text-[8px] font-mono tracking-widest text-[var(--fg-25)]">REST TIMER</p>
-                            <p className="text-2xl font-bold font-mono text-[rgb(var(--accent-rgb))]">{formatClock(w.restRemaining)}</p>
+                            <p className="text-[9px] font-mono tracking-widest text-[var(--fg-25)] mb-2">QUICK-START TEMPLATES</p>
+                            <div className="space-y-2">
+                                {QUICK_START_TEMPLATES.map((t) => (
+                                    <div key={t.key} className="rounded-xl border border-[var(--fg-06)] bg-[var(--fg-03)] p-4 hover:bg-[var(--fg-04)] transition">
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-semibold text-[var(--fg-85)]">{t.name}</p>
+                                                <p className="text-[10px] font-mono text-[var(--fg-30)] mt-0.5">{t.daysPerWeek} days/week</p>
+                                                <p className="text-[10px] text-[var(--fg-25)] mt-1 leading-relaxed">{t.muscleCoverage}</p>
+                                            </div>
+                                            <div className="shrink-0 w-10 h-10 rounded-lg bg-[rgb(var(--accent-rgb)/0.08)] border border-[rgb(var(--accent-rgb)/0.15)] flex items-center justify-center">
+                                                <Zap size={16} className="text-[rgb(var(--accent-rgb))]" />
+                                            </div>
+                                        </div>
+                                        <div className="mt-3 pt-3 border-t border-[var(--fg-04)]">
+                                            <div className="flex flex-wrap gap-1">
+                                                {t.days.map((d, i) => (
+                                                    <span key={i} className="text-[8px] font-mono px-2 py-0.5 rounded-full border border-[var(--fg-06)] text-[var(--fg-30)] bg-[var(--fg-02)]">
+                                                        {d.dayName}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                            <button onClick={() => w.addRestTime(15)} className="text-[10px] font-mono px-2.5 py-2 rounded-lg border border-[var(--fg-08)] text-[var(--fg-40)] hover:text-[var(--fg-70)] active:scale-95 transition">+15s</button>
-                            <button onClick={() => w.setRestPaused((p) => !p)} className="w-10 h-10 flex items-center justify-center rounded-lg border border-[var(--fg-08)] text-[var(--fg-40)] hover:text-[var(--fg-70)] active:scale-95 transition">
-                                {w.restPaused ? <Play size={16} /> : <Pause size={16} />}
-                            </button>
-                            <button onClick={w.dismissRestTimer} className="w-10 h-10 flex items-center justify-center rounded-lg border border-[var(--fg-08)] text-[var(--fg-40)] hover:text-[var(--fg-70)] active:scale-95 transition">
-                                <SkipForward size={16} />
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
 
-            {/* ── STICKY ACTION BAR ── */}
-            {w.status === "active" && w.restRemaining === null && (
-                <div className="fixed bottom-16 md:bottom-6 left-0 right-0 md:left-1/2 md:-translate-x-1/2 md:max-w-sm md:rounded-xl z-20">
-                    <div className="border-t md:border border-[var(--fg-06)] bg-[var(--bg-card)] backdrop-blur-xl px-5 py-3 md:rounded-xl flex items-center gap-2">
-                        {!w.sessionPaused ? (
-                            <>
-                                <button
-                                    onClick={w.startManualRestTimer}
-                                    className="text-[10px] font-mono font-medium py-3 px-3 rounded-xl border border-[var(--fg-08)] text-[var(--fg-40)] hover:text-[var(--fg-70)] transition"
-                                >
-                                    <Timer size={12} className="inline mr-1" />Rest
-                                </button>
-                                <button
-                                    onClick={() => w.setSessionPaused(true)}
-                                    className="text-[10px] font-mono font-medium py-3 px-3 rounded-xl border border-[var(--fg-08)] text-[var(--fg-40)] hover:text-[var(--fg-70)] transition"
-                                >
-                                    <Pause size={12} className="inline mr-1" />Pause
-                                </button>
-                                <button onClick={() => w.setShowEndConfirm(true)} className="flex-1 text-sm font-semibold py-3 rounded-xl bg-[rgb(var(--accent-rgb))] text-black hover:brightness-110 transition">
-                                    {w.completedCount > 0 ? `Complete · ${w.completedCount} sets` : "End Session"}
-                                </button>
-                            </>
-                        ) : (
-                            <button
-                                onClick={() => w.setSessionPaused(false)}
-                                className="flex-1 text-sm font-semibold py-3 rounded-xl bg-amber-500 text-black hover:brightness-110 transition flex items-center justify-center gap-2"
-                            >
-                                <Play size={14} /> Resume Session
-                            </button>
-                        )}
-                    </div>
-                </div>
-            )}
+                        {/* Browse plans button */}
+                        <button
+                            onClick={() => setShowPlanBrowser(true)}
+                            className="w-full flex items-center justify-center gap-2 text-sm font-medium py-3.5 rounded-xl border border-[rgb(var(--accent-rgb)/0.2)] bg-[rgb(var(--accent-rgb)/0.05)] text-[rgb(var(--accent-rgb))] hover:bg-[rgb(var(--accent-rgb)/0.1)] transition"
+                        >
+                            <BookOpen size={16} /> Browse All Plans
+                        </button>
+                    </>
+                )}
+            </div>
 
-            {/* ── MODALS ── */}
-            {w.finishing && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-md">
-                    <CubeLoader message="Saving your workout…" />
-                </div>
-            )}
-
-            {w.showEndConfirm && !w.finishing && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                    <div className="w-full max-w-sm rounded-2xl border border-[var(--fg-08)] bg-[var(--bg-card)] p-5">
-                        <p className="text-sm font-semibold text-[var(--fg-85)] mb-2">End workout?</p>
-                        {w.completedCount === 0 ? (
-                            <p className="text-[11px] text-[var(--fg-35)] mb-4">
-                                No sets completed. This session will be saved as ended early.
-                            </p>
-                        ) : w.completedCount < w.totalPlanned ? (
-                            <p className="text-[11px] text-[var(--fg-35)] mb-4">
-                                You&apos;ve completed {w.completedCount} of {w.totalPlanned} planned sets. Unfinished sets won&apos;t be logged.
-                            </p>
-                        ) : (
-                            <p className="text-[11px] text-[var(--fg-35)] mb-4">
-                                All {w.completedCount} sets completed. Nice work.
-                            </p>
-                        )}
-                        <div className="flex gap-2">
-                            <button onClick={() => w.setShowEndConfirm(false)} className="flex-1 text-sm font-medium py-2.5 rounded-xl border border-[var(--fg-08)] text-[var(--fg-50)] hover:text-[var(--fg-80)] transition">
-                                Keep Going
-                            </button>
-                            <button onClick={() => { w.setShowEndConfirm(false); w.finishWorkout(); }} className="flex-1 text-sm font-semibold py-2.5 rounded-xl bg-[rgb(var(--accent-rgb))] text-black hover:brightness-110 transition">
-                                Finish
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {w.showDeletePlanConfirm && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                    <div className="w-full max-w-sm rounded-2xl border border-red-500/15 bg-[var(--bg-card)] p-5">
-                        <div className="w-10 h-10 mx-auto mb-3 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center">
-                            <Trash2 size={18} className="text-red-400" />
-                        </div>
-                        <p className="text-sm font-semibold text-[var(--fg-85)] text-center mb-2">Delete entire workout plan?</p>
-                        <p className="text-[11px] text-[var(--fg-35)] text-center mb-4">
-                            This will permanently delete your weekly schedule for the current mode. All templates and scheduled exercises will be removed. This cannot be undone.
-                        </p>
-                        <div className="flex gap-2">
-                            <button onClick={() => w.setShowDeletePlanConfirm(false)} className="flex-1 text-sm font-medium py-2.5 rounded-xl border border-[var(--fg-08)] text-[var(--fg-50)] hover:text-[var(--fg-80)] transition">
-                                Cancel
-                            </button>
-                            <button onClick={w.deletePlan} disabled={w.deletingPlan} className="flex-1 text-sm font-semibold py-2.5 rounded-xl bg-red-500 text-[var(--text-primary)] hover:bg-red-600 disabled:opacity-50 transition">
-                                {w.deletingPlan ? "Deleting..." : "Delete Plan"}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {w.swapTargetId && <AddExerciseModal onAdd={(e) => { const old = w.exercisesList.find((x) => x.id === w.swapTargetId); if (old) w.handleSwap(old, e); }} onClose={() => w.setSwapTargetId(null)} defaultSegment={w.exercisesList.find((x) => x.id === w.swapTargetId)?.body_segment} />}
-            {w.showAddModal && <AddExerciseModal onAdd={w.handleAddExercise} onClose={() => w.setShowAddModal(false)} existingIds={new Set(w.exercisesList.map((e) => e.exercise_id))} />}
-            {detailExercise && (
+            {/* Modals */}
+            {detailEx && (
                 <ExerciseDetailSheet
-                    exerciseId={detailExercise.exercise_id}
-                    exerciseName={detailExercise.name}
-                    equipment={detailExercise.equipment}
-                    bodySegment={detailExercise.body_segment}
-                    weightUnit={w.weightUnit}
-                    userSex={w.userSex}
-                    imageUrl={detailExercise.image_url}
-                    onClose={() => setDetailExercise(null)}
+                    exerciseId={detailEx.id}
+                    exerciseName={detailEx.name}
+                    equipment={detailEx.equipment}
+                    bodySegment={detailEx.body_segment}
+                    weightUnit={weightUnit}
+                    userSex={userSex}
+                    imageUrl={detailEx.image_url}
+                    onClose={() => setDetailEx(null)}
                 />
             )}
-            {formCheckExercise && <LazyFormCheck exerciseName={formCheckExercise} onClose={() => setFormCheckExercise(null)} />}
+            <PlanBrowserModal
+                open={showPlanBrowser}
+                onClose={() => setShowPlanBrowser(false)}
+                onImport={() => {}}
+                importing={false}
+                userSex={userSex}
+            />
         </main>
     );
 }

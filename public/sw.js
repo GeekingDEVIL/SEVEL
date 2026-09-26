@@ -1,4 +1,4 @@
-const CACHE_NAME = "sevel-v2";
+const CACHE_NAME = "sevel-v3";
 const PRECACHE_URLS = ["/", "/workout", "/schedule"];
 
 self.addEventListener("install", (event) => {
@@ -40,8 +40,22 @@ self.addEventListener("fetch", (event) => {
         return;
     }
 
-    // Cache-first for static assets
-    if (url.pathname.startsWith("/_next/static/") || url.pathname.match(/\.(js|css|woff2?|png|jpg|svg|ico)$/)) {
+    // Network-first for _next bundles (dev chunks change constantly)
+    if (url.pathname.startsWith("/_next/")) {
+        event.respondWith(
+            fetch(request)
+                .then((response) => {
+                    const clone = response.clone();
+                    caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+                    return response;
+                })
+                .catch(() => caches.match(request))
+        );
+        return;
+    }
+
+    // Cache-first for other static assets (fonts, images, icons)
+    if (url.pathname.match(/\.(woff2?|png|jpg|svg|ico)$/)) {
         event.respondWith(
             caches.match(request).then((cached) => {
                 if (cached) return cached;

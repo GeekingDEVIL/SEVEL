@@ -76,7 +76,8 @@ export default function AsciiCanvas({
       glowRows = rows;
     }
 
-    function sampleImage(w: number, h: number) {
+    function sampleImage(w: number, h: number): ImageData | null {
+      if (w === 0 || h === 0) return null;
       if (cachedData && cachedW === w && cachedH === h) return cachedData;
       const off = document.createElement("canvas");
       off.width = w;
@@ -103,7 +104,10 @@ export default function AsciiCanvas({
 
       const w = window.innerWidth;
       const h = window.innerHeight;
-      const data = sampleImage(w, h).data;
+      if (w === 0 || h === 0) return;
+      const sampled = sampleImage(w, h);
+      if (!sampled) return;
+      const data = sampled.data;
 
       ctx.fillStyle = "#06080c";
       ctx.fillRect(0, 0, w, h);

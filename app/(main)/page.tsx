@@ -759,7 +759,7 @@ export default function Dashboard() {
     } else if (!todayPlan || todayPlan.is_rest || todayPlan.count === 0) {
       router.push("/schedule");
     } else {
-      router.push("/workout");
+      router.push("/schedule");
     }
   }
 
@@ -1233,7 +1233,7 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <button
-                  onClick={() => router.push("/workout")}
+                  onClick={() => router.push("/schedule")}
                   className="shrink-0 w-10 h-10 rounded-xl bg-[rgb(var(--accent-rgb))] flex items-center justify-center text-black hover:brightness-110 transition"
                 >
                   <Play size={18} fill="black" />

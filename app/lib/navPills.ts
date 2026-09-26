@@ -18,9 +18,10 @@ type ConditionalPill = NavPill & {
 };
 
 const trainPillsDef: ConditionalPill[] = [
-  { key: "/workout", label: "WORKOUT", icon: Dumbbell, colorRgb: "139 92 246", description: "Log sets, reps, and weight with smart rest timers" },
+  { key: "/schedule", label: "SCHEDULE", icon: CalendarClock, colorRgb: "139 92 246", description: "Your unified training command center" },
+  { key: "/workout", label: "WORKOUT", icon: Dumbbell, colorRgb: "139 92 246", description: "Exercise library, plan browser, and training templates" },
   { key: "/running", label: "RUNNING", icon: Activity, module: "running", colorRgb: "249 115 22", description: "GPS run tracking, pace, splits, route history", comingSoon: true },
-  { key: "/martial-arts", label: "MARTIAL ARTS", icon: Swords, module: "martial_arts", colorRgb: "239 68 68", description: "Muay Thai, BJJ, Boxing technique guides", comingSoon: true },
+  { key: "/martial-arts", label: "MARTIAL ARTS", icon: Swords, module: "martial_arts", colorRgb: "239 68 68", description: "Technique library — train from Schedule" },
   { key: "/yoga", label: "YOGA", icon: Wind, module: "yoga", colorRgb: "236 72 153", description: "Pose library, flow sequences, flexibility", comingSoon: true },
   { key: "/calisthenics", label: "CALISTHENICS", icon: PersonStanding, module: "calisthenics", colorRgb: "139 92 246", description: "Bodyweight skill progressions, holds, planche training", comingSoon: true },
 ];

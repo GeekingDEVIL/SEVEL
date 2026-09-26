@@ -23,6 +23,8 @@ type Exercise = {
   per_side_weight: boolean;
   image_url: string | null;
   created_by?: string | null;
+  tracking_mode?: string;
+  discipline?: string;
 };
 
 const BODY_SEGMENTS = ["All", "Chest", "Back", "Shoulders", "Traps", "Biceps", "Triceps", "Forearms", "Core", "Legs", "Glutes", "Full Body", "Cardio"];
@@ -43,6 +45,21 @@ const PRIMARY_MUSCLES: Record<string, string[]> = {
 const EQUIPMENT = ["All", "Barbell", "Dumbbell", "Cable", "Machine", "Bodyweight", "Kettlebell", "Resistance Band", "Other"];
 const CATEGORIES = ["All", "Compound", "Isolation", "Isometric", "Cardio"];
 const DIFFICULTIES = ["All", "Beginner", "Intermediate", "Advanced"];
+
+const DISCIPLINE_FILTERS: { key: string; label: string; emoji: string; color: string }[] = [
+  { key: "All", label: "All", emoji: "", color: "" },
+  { key: "strength", label: "Strength", emoji: "🏋️", color: "#a78bfa" },
+  { key: "boxing", label: "Boxing", emoji: "🥊", color: "#ef4444" },
+  { key: "muay_thai", label: "Muay Thai", emoji: "🦵", color: "#f97316" },
+  { key: "kickboxing", label: "Kickboxing", emoji: "🦶", color: "#f59e0b" },
+  { key: "bjj", label: "BJJ", emoji: "🥋", color: "#a78bfa" },
+  { key: "wrestling", label: "Wrestling", emoji: "🤼", color: "#10b981" },
+  { key: "mma", label: "MMA", emoji: "⚔️", color: "#ef4444" },
+  { key: "karate", label: "Karate", emoji: "🥋", color: "#3b82f6" },
+  { key: "calisthenics", label: "Calisthenics", emoji: "🤸", color: "#34d399" },
+  { key: "cardio", label: "Cardio", emoji: "🏃", color: "#fbbf24" },
+  { key: "mobility", label: "Mobility", emoji: "🧘", color: "#22d3ee" },
+];
 
 function Chip({ active, children, onClick, size = "sm" }: { active: boolean; children: React.ReactNode; onClick: () => void; size?: "sm" | "xs" }) {
   return (
@@ -79,7 +96,7 @@ function scoreMatch(ex: Exercise, query: string): number {
   const q = query.toLowerCase().trim();
   const words = q.split(/\s+/).filter(Boolean);
   const name = ex.name.toLowerCase();
-  const haystack = [ex.name, ex.primary_muscle, ex.body_segment, ex.equipment, ex.movement_pattern, ...(ex.secondary_muscles || [])].join(" ").toLowerCase();
+  const haystack = [ex.name, ex.primary_muscle, ex.body_segment, ex.equipment, ex.movement_pattern, ex.discipline ?? "", ...(ex.secondary_muscles || [])].join(" ").toLowerCase();
   let score = 0;
   if (name === q) score += 100;
   else if (name.startsWith(q)) score += 60;
@@ -115,6 +132,7 @@ export default function AddExerciseModal({
   const [equipment, setEquipment] = useState("All");
   const [category, setCategory] = useState("All");
   const [difficulty, setDifficulty] = useState("All");
+  const [discipline, setDiscipline] = useState("All");
   const [justAdded, setJustAdded] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [recentExerciseIds, setRecentExerciseIds] = useState<Set<string>>(new Set());
@@ -135,7 +153,16 @@ export default function AddExerciseModal({
     ? PRIMARY_MUSCLES[bodySegment]
     : [];
 
-  const activeFilterCount = [bodySegment, equipment, category, difficulty].filter(f => f !== "All").length
+  const availableDisciplines = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const ex of exercises) {
+      const d = ex.discipline ?? "strength";
+      counts.set(d, (counts.get(d) ?? 0) + 1);
+    }
+    return DISCIPLINE_FILTERS.filter(d => d.key === "All" || (counts.get(d.key) ?? 0) > 0);
+  }, [exercises]);
+
+  const activeFilterCount = [bodySegment, equipment, category, difficulty, discipline].filter(f => f !== "All").length
     + (primaryMuscle !== "All" ? 1 : 0);
 
   useEffect(() => {
@@ -186,7 +213,7 @@ export default function AddExerciseModal({
       if (equipment !== "All" && ex.equipment !== equipment) return false;
       if (category !== "All" && ex.category !== category) return false;
       if (difficulty !== "All" && ex.difficulty !== difficulty) return false;
-      // Equipment-access filter: always show Bodyweight; hide exercises whose equipment isn't in user's list
+      if (discipline !== "All" && (ex.discipline ?? "strength") !== discipline) return false;
       if (myEquipmentOn && hasEquipmentProfile && ex.equipment !== "Bodyweight" && !equipmentAccess.includes(ex.equipment)) return false;
       return true;
     });
@@ -226,7 +253,7 @@ export default function AddExerciseModal({
     }
 
     return base;
-  }, [exercises, query, bodySegment, primaryMuscle, equipment, category, difficulty, sortBy, recentExerciseIds, favoriteIds, myEquipmentOn, hasEquipmentProfile, equipmentAccess]);
+  }, [exercises, query, bodySegment, primaryMuscle, equipment, category, difficulty, discipline, sortBy, recentExerciseIds, favoriteIds, myEquipmentOn, hasEquipmentProfile, equipmentAccess]);
 
   // Keep newMuscle in sync with newSegment
   useEffect(() => {
@@ -279,6 +306,7 @@ export default function AddExerciseModal({
     setEquipment("All");
     setCategory("All");
     setDifficulty("All");
+    setDiscipline("All");
   }
 
   if (!mounted) return null;
@@ -341,6 +369,23 @@ export default function AddExerciseModal({
               )}
               <ChevronDown size={12} className={`transition-transform ${showFilters ? "rotate-180" : ""}`} />
             </button>
+          </div>
+
+          {/* Discipline cards (color-coded entry point) */}
+          <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1 -mx-1 px-1">
+            {availableDisciplines.map(d => (
+              <button key={d.key} onClick={() => setDiscipline(d.key)}
+                className={`shrink-0 flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-mono transition ${
+                  discipline === d.key
+                    ? "border-current bg-current/15 font-bold"
+                    : "border-[var(--fg-10)] bg-[var(--fg-03)] text-[var(--fg-50)] hover:text-[var(--fg-80)]"
+                }`}
+                style={discipline === d.key && d.color ? { color: d.color, borderColor: d.color, background: `${d.color}22` } : undefined}
+              >
+                {d.emoji && <span className="text-xs">{d.emoji}</span>}
+                {d.label}
+              </button>
+            ))}
           </div>
 
           {/* Quick segment bar (always visible) */}
@@ -556,6 +601,10 @@ export default function AddExerciseModal({
                   )}
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5 mb-1">
+                      {ex.discipline && ex.discipline !== "strength" && (() => {
+                        const df = DISCIPLINE_FILTERS.find(d => d.key === ex.discipline);
+                        return df?.color ? <span className="w-2 h-2 rounded-full shrink-0" style={{ background: df.color }} /> : null;
+                      })()}
                       <p className="font-bold text-sm text-[var(--fg-90)] truncate">{ex.name}</p>
                       {isFav && <Star size={11} className="text-yellow-300 shrink-0" fill="currentColor" />}
                       {ex.created_by && <Tag variant="accent">CUSTOM</Tag>}

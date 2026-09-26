@@ -36,15 +36,32 @@ export function useModules() {
 
   useEffect(() => {
     if (!user) return;
+    const defaults = DEFAULT_ENABLED.filter(
+      (k) => !CORE_MODULES.some((m) => m.key === k),
+    );
     supabase
       .from("user_modules")
       .select("module_key")
       .eq("user_id", user.id)
-      .then(({ data }) => {
+      .then(async ({ data }) => {
         if (data && data.length > 0) {
           const dbKeys = data.map((r) => r.module_key as ModuleKey);
           setOptionalKeys(dbKeys);
           localStorage.setItem(MODULES_KEY, JSON.stringify(dbKeys));
+        } else {
+          // First login or empty DB — seed with current defaults + any localStorage extras
+          const stored = localStorage.getItem(MODULES_KEY);
+          let toSeed = defaults;
+          if (stored) {
+            try { toSeed = Array.from(new Set([...defaults, ...JSON.parse(stored)])); } catch { /* use defaults */ }
+          }
+          setOptionalKeys(toSeed);
+          localStorage.setItem(MODULES_KEY, JSON.stringify(toSeed));
+          if (toSeed.length > 0) {
+            await supabase.from("user_modules").insert(
+              toSeed.map((k) => ({ user_id: user.id, module_key: k }))
+            );
+          }
         }
         setLoaded(true);
       });

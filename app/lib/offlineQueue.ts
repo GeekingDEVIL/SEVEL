@@ -34,6 +34,13 @@ export function queueLength(): number {
     return getQueue().length;
 }
 
+export function removeFromQueue(predicate: (w: QueuedWrite) => boolean) {
+    const queue = getQueue();
+    const filtered = queue.filter((w) => !predicate(w));
+    if (filtered.length !== queue.length) saveQueue(filtered);
+}
+
+
 export async function flushQueue(
     supabase: { from: (table: string) => any }
 ): Promise<{ flushed: number; failed: number }> {

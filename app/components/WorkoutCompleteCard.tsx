@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Calendar, Share2 } from "lucide-react";
-import type { WorkoutExercise, SetEntry, SessionSummary, TodaySession } from "../lib/useWorkoutSession";
+import { Calendar, Share2, ChevronRight } from "lucide-react";
+import type { WorkoutExercise, SetEntry, SessionSummary, TodaySession, RecentSession } from "../lib/useWorkoutSession";
 import { formatClock, kgToUnit } from "../lib/useWorkoutSession";
+import MuscleHeatMap from "./MuscleHeatMap";
+import type { MuscleInput } from "./MuscleHeatMap";
 
 type Props = {
     dayTitle: string;
@@ -13,14 +15,16 @@ type Props = {
     todaySessions: TodaySession[];
     weekDays: boolean[];
     prCount: number;
+    prExerciseIds?: Set<string>;
     weightUnit: string;
-    sessionRating: number | null;
     cycleProfile: { phase: string; cycleDay: number; styleName: string; banner: { color: string } } | null;
     sharing: boolean;
     maxSessions: number;
     sessionCount: number;
     nextSession: { name: string; exerciseCount: number; dayLabel: string } | null;
-    onRate: (val: number) => void;
+    recentSessions: RecentSession[];
+    queuedExercises?: { name: string; type: string }[];
+    muscles?: MuscleInput[];
     onShare: () => void;
     onSchedule: () => void;
     onProgress: () => void;
@@ -174,16 +178,6 @@ const SCROLL_CSS = `
 .next-name { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--fg-90); }
 .next-meta { font-family: 'JetBrains Mono', monospace; font-size: 8px; color: var(--fg-35); margin-top: 1px; }
 
-.rating-section { margin-top: 16px; text-align: center; }
-.rating-label { font-family: 'JetBrains Mono', monospace; font-size: 7px; letter-spacing: 2px; color: var(--fg-35); margin-bottom: 8px; }
-.rating-row { display: flex; justify-content: center; gap: 6px; }
-.rating-btn { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 10px; border-radius: 10px; border: 1px solid rgb(var(--accent-rgb) / 0.08); background: transparent; cursor: pointer; transition: all 0.2s; }
-.rating-btn:hover { border-color: rgb(var(--accent-rgb) / 0.2); background: rgb(var(--accent-rgb) / 0.04); }
-.rating-btn.selected { background: rgb(var(--accent-rgb) / 0.15); border-color: rgb(var(--accent-rgb) / 0.4); transform: scale(1.1); }
-.rating-btn.dimmed { opacity: 0.35; }
-.rating-emoji { font-size: 20px; line-height: 1; }
-.rating-text { font-family: 'JetBrains Mono', monospace; font-size: 7px; color: var(--fg-35); }
-.rating-btn.selected .rating-text { color: rgb(var(--accent-rgb)); }
 
 .seal-group { text-align: center; padding: 8px 0; }
 .seal-container { display: inline-block; position: relative; opacity: 0; animation: sealStamp 0.5s cubic-bezier(0.34,1.56,0.64,1) 3.2s forwards; }
@@ -213,164 +207,147 @@ const SCROLL_CSS = `
 .scroll-btn-icon:disabled { opacity: 0.4; cursor: default; }
 .another-btn { margin-top: 8px; width: 100%; font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 1.5px; padding: 11px 0; border-radius: 10px; border: 1px solid var(--fg-10); background: transparent; color: var(--fg-45); cursor: pointer; transition: all 0.2s; }
 .another-btn:hover { color: var(--fg-50); border-color: var(--fg-12); }
+
+.recent-section { margin-top: 20px; }
+.recent-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.recent-title { font-family: 'JetBrains Mono', monospace; font-size: 8px; letter-spacing: 2px; color: var(--fg-35); }
+.recent-view-all { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: rgb(var(--accent-rgb)); cursor: pointer; background: none; border: none; padding: 0; }
+.recent-list { display: flex; flex-direction: column; }
+.recent-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--fg-06); }
+.recent-row:last-child { border-bottom: none; }
+.recent-name { font-size: 12px; color: var(--fg-85); }
+.recent-date { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--fg-35); }
+
+.session-pills { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; margin-top: 12px; }
+.session-pill { font-family: 'JetBrains Mono', monospace; font-size: 8px; letter-spacing: 1px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--fg-08); background: transparent; color: var(--fg-35); cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+.session-pill:hover { border-color: rgb(var(--accent-rgb) / 0.3); color: var(--fg-60); }
+.session-pill.active { background: rgb(var(--accent-rgb) / 0.12); border-color: rgb(var(--accent-rgb) / 0.4); color: rgb(var(--accent-rgb)); }
 `;
-
-/* ─── MUSCLE SCANNER CANVAS ─── */
-function MuscleScanner({ hitSegments, side }: { hitSegments: Set<string>; side: "front" | "back" }) {
-    const canvasRef = useRef<HTMLCanvasElement>(null);
-    const animRef = useRef(0);
-    const frameRef = useRef(0);
-
-    const segmentToMuscle: Record<string, string[]> = useMemo(() => ({
-        Chest: ["lpec", "rpec"], Shoulders: ["lfdelt", "rfdelt", "lrdelt", "rrdelt"],
-        Biceps: ["lbicep", "rbicep"], Triceps: ["ltri", "rtri"],
-        Back: ["uback", "traps", "llat", "rlat", "lback"], Core: ["abs", "lobl", "robl"],
-        Legs: ["lquad", "rquad", "lham", "rham", "lshin", "rshin", "lcalf", "rcalf"],
-        Glutes: ["glutes"], Forearms: ["lfarm", "rfarm"], Traps: ["traps"],
-    }), []);
-
-    const activeMuscles = useMemo(() => {
-        const s = new Set<string>();
-        hitSegments.forEach(seg => { segmentToMuscle[seg]?.forEach(m => s.add(m)); });
-        return s;
-    }, [hitSegments, segmentToMuscle]);
-
-    useEffect(() => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        const ctx = canvas.getContext("2d")!;
-        if (!ctx) return;
-        const W = 300, H = 560, CX = 150;
-        type M = { name: string; intensity: number; phase: number; amp: number; path: (c: CanvasRenderingContext2D) => void };
-
-        function i(name: string, hi: number) { return activeMuscles.has(name) ? hi : 0; }
-
-        const front: M[] = [
-            { name:"head", intensity:0, phase:0, amp:0, path:c=>{c.ellipse(CX,40,20,24,0,0,Math.PI*2);} },
-            { name:"neck", intensity:0, phase:0, amp:0, path:c=>{c.moveTo(CX-9,62);c.lineTo(CX-11,80);c.lineTo(CX+11,80);c.lineTo(CX+9,62);c.closePath();} },
-            { name:"lpec", intensity:i("lpec",0.95), phase:0, amp:0.08, path:c=>{c.moveTo(CX-4,92);c.quadraticCurveTo(CX-8,88,CX-38,84);c.quadraticCurveTo(CX-50,86,CX-52,96);c.lineTo(CX-48,120);c.quadraticCurveTo(CX-40,134,CX-20,138);c.quadraticCurveTo(CX-8,136,CX-4,128);c.closePath();} },
-            { name:"rpec", intensity:i("rpec",0.95), phase:0.1, amp:0.08, path:c=>{c.moveTo(CX+4,92);c.quadraticCurveTo(CX+8,88,CX+38,84);c.quadraticCurveTo(CX+50,86,CX+52,96);c.lineTo(CX+48,120);c.quadraticCurveTo(CX+40,134,CX+20,138);c.quadraticCurveTo(CX+8,136,CX+4,128);c.closePath();} },
-            { name:"lfdelt", intensity:i("lfdelt",0.85), phase:0.4, amp:0.07, path:c=>{c.moveTo(CX-38,82);c.quadraticCurveTo(CX-56,76,CX-70,82);c.quadraticCurveTo(CX-78,90,CX-76,102);c.lineTo(CX-70,116);c.lineTo(CX-56,108);c.lineTo(CX-52,94);c.closePath();} },
-            { name:"rfdelt", intensity:i("rfdelt",0.85), phase:0.5, amp:0.07, path:c=>{c.moveTo(CX+38,82);c.quadraticCurveTo(CX+56,76,CX+70,82);c.quadraticCurveTo(CX+78,90,CX+76,102);c.lineTo(CX+70,116);c.lineTo(CX+56,108);c.lineTo(CX+52,94);c.closePath();} },
-            { name:"lbicep", intensity:i("lbicep",0.7), phase:0.6, amp:0.05, path:c=>{c.moveTo(CX-70,118);c.lineTo(CX-74,172);c.quadraticCurveTo(CX-76,182,CX-68,184);c.lineTo(CX-58,180);c.lineTo(CX-56,118);c.closePath();} },
-            { name:"rbicep", intensity:i("rbicep",0.7), phase:0.7, amp:0.05, path:c=>{c.moveTo(CX+70,118);c.lineTo(CX+74,172);c.quadraticCurveTo(CX+76,182,CX+68,184);c.lineTo(CX+58,180);c.lineTo(CX+56,118);c.closePath();} },
-            { name:"lfarm", intensity:i("lfarm",0.5), phase:0, amp:0, path:c=>{c.moveTo(CX-68,188);c.lineTo(CX-72,260);c.quadraticCurveTo(CX-74,270,CX-68,272);c.lineTo(CX-58,268);c.lineTo(CX-56,188);c.closePath();} },
-            { name:"rfarm", intensity:i("rfarm",0.5), phase:0, amp:0, path:c=>{c.moveTo(CX+68,188);c.lineTo(CX+72,260);c.quadraticCurveTo(CX+74,270,CX+68,272);c.lineTo(CX+58,268);c.lineTo(CX+56,188);c.closePath();} },
-            { name:"abs", intensity:i("abs",0.6), phase:0.9, amp:0.04, path:c=>{c.moveTo(CX-18,140);c.lineTo(CX-20,200);c.quadraticCurveTo(CX-22,240,CX-18,254);c.lineTo(CX+18,254);c.quadraticCurveTo(CX+22,240,CX+20,200);c.lineTo(CX+18,140);c.closePath();} },
-            { name:"lobl", intensity:i("lobl",0.4), phase:0, amp:0, path:c=>{c.moveTo(CX-48,124);c.lineTo(CX-44,180);c.quadraticCurveTo(CX-40,220,CX-34,248);c.lineTo(CX-20,248);c.lineTo(CX-20,200);c.lineTo(CX-22,140);c.closePath();} },
-            { name:"robl", intensity:i("robl",0.4), phase:0, amp:0, path:c=>{c.moveTo(CX+48,124);c.lineTo(CX+44,180);c.quadraticCurveTo(CX+40,220,CX+34,248);c.lineTo(CX+20,248);c.lineTo(CX+20,200);c.lineTo(CX+22,140);c.closePath();} },
-            { name:"lquad", intensity:i("lquad",0.65), phase:0, amp:0.03, path:c=>{c.moveTo(CX-32,258);c.lineTo(CX-36,380);c.quadraticCurveTo(CX-34,394,CX-26,396);c.lineTo(CX-6,396);c.lineTo(CX-4,258);c.closePath();} },
-            { name:"rquad", intensity:i("rquad",0.65), phase:0, amp:0.03, path:c=>{c.moveTo(CX+32,258);c.lineTo(CX+36,380);c.quadraticCurveTo(CX+34,394,CX+26,396);c.lineTo(CX+6,396);c.lineTo(CX+4,258);c.closePath();} },
-            { name:"lshin", intensity:i("lshin",0.3), phase:0, amp:0, path:c=>{c.moveTo(CX-34,400);c.lineTo(CX-36,500);c.lineTo(CX-40,530);c.lineTo(CX-8,530);c.lineTo(CX-8,400);c.closePath();} },
-            { name:"rshin", intensity:i("rshin",0.3), phase:0, amp:0, path:c=>{c.moveTo(CX+34,400);c.lineTo(CX+36,500);c.lineTo(CX+40,530);c.lineTo(CX+8,530);c.lineTo(CX+8,400);c.closePath();} },
-        ];
-        const back: M[] = [
-            { name:"head", intensity:0, phase:0, amp:0, path:c=>{c.ellipse(CX,40,20,24,0,0,Math.PI*2);} },
-            { name:"neck", intensity:0, phase:0, amp:0, path:c=>{c.moveTo(CX-9,62);c.lineTo(CX-11,80);c.lineTo(CX+11,80);c.lineTo(CX+9,62);c.closePath();} },
-            { name:"traps", intensity:i("traps",0.6), phase:0, amp:0.04, path:c=>{c.moveTo(CX-12,80);c.quadraticCurveTo(CX-30,78,CX-48,84);c.lineTo(CX-40,108);c.lineTo(CX-8,100);c.lineTo(CX-4,92);c.closePath();c.moveTo(CX+12,80);c.quadraticCurveTo(CX+30,78,CX+48,84);c.lineTo(CX+40,108);c.lineTo(CX+8,100);c.lineTo(CX+4,92);c.closePath();} },
-            { name:"lrdelt", intensity:i("lrdelt",0.55), phase:0.6, amp:0.05, path:c=>{c.moveTo(CX-48,82);c.quadraticCurveTo(CX-66,76,CX-72,86);c.quadraticCurveTo(CX-78,96,CX-74,108);c.lineTo(CX-66,116);c.lineTo(CX-54,106);c.lineTo(CX-50,92);c.closePath();} },
-            { name:"rrdelt", intensity:i("rrdelt",0.55), phase:0.7, amp:0.05, path:c=>{c.moveTo(CX+48,82);c.quadraticCurveTo(CX+66,76,CX+72,86);c.quadraticCurveTo(CX+78,96,CX+74,108);c.lineTo(CX+66,116);c.lineTo(CX+54,106);c.lineTo(CX+50,92);c.closePath();} },
-            { name:"uback", intensity:i("uback",0.5), phase:0, amp:0, path:c=>{c.moveTo(CX-6,92);c.lineTo(CX-38,88);c.lineTo(CX-42,130);c.quadraticCurveTo(CX-30,142,CX-6,140);c.closePath();c.moveTo(CX+6,92);c.lineTo(CX+38,88);c.lineTo(CX+42,130);c.quadraticCurveTo(CX+30,142,CX+6,140);c.closePath();} },
-            { name:"ltri", intensity:i("ltri",0.6), phase:0.2, amp:0.05, path:c=>{c.moveTo(CX-66,118);c.lineTo(CX-72,174);c.quadraticCurveTo(CX-74,184,CX-66,186);c.lineTo(CX-56,182);c.lineTo(CX-54,118);c.closePath();} },
-            { name:"rtri", intensity:i("rtri",0.6), phase:0.3, amp:0.05, path:c=>{c.moveTo(CX+66,118);c.lineTo(CX+72,174);c.quadraticCurveTo(CX+74,184,CX+66,186);c.lineTo(CX+56,182);c.lineTo(CX+54,118);c.closePath();} },
-            { name:"lfarm", intensity:i("lfarm",0.4), phase:0, amp:0, path:c=>{c.moveTo(CX-66,190);c.lineTo(CX-70,262);c.quadraticCurveTo(CX-72,272,CX-66,274);c.lineTo(CX-56,270);c.lineTo(CX-54,190);c.closePath();} },
-            { name:"rfarm", intensity:i("rfarm",0.4), phase:0, amp:0, path:c=>{c.moveTo(CX+66,190);c.lineTo(CX+70,262);c.quadraticCurveTo(CX+72,272,CX+66,274);c.lineTo(CX+56,270);c.lineTo(CX+54,190);c.closePath();} },
-            { name:"llat", intensity:i("llat",0.5), phase:0, amp:0, path:c=>{c.moveTo(CX-42,134);c.lineTo(CX-46,190);c.quadraticCurveTo(CX-42,220,CX-36,244);c.lineTo(CX-22,244);c.lineTo(CX-20,160);c.closePath();} },
-            { name:"rlat", intensity:i("rlat",0.5), phase:0, amp:0, path:c=>{c.moveTo(CX+42,134);c.lineTo(CX+46,190);c.quadraticCurveTo(CX+42,220,CX+36,244);c.lineTo(CX+22,244);c.lineTo(CX+20,160);c.closePath();} },
-            { name:"lback", intensity:i("lback",0.35), phase:0, amp:0, path:c=>{c.moveTo(CX-18,160);c.lineTo(CX-20,244);c.lineTo(CX+20,244);c.lineTo(CX+18,160);c.closePath();} },
-            { name:"glutes", intensity:i("glutes",0.5), phase:0, amp:0, path:c=>{c.moveTo(CX-34,248);c.quadraticCurveTo(CX-36,268,CX-28,280);c.quadraticCurveTo(CX-14,290,CX,286);c.quadraticCurveTo(CX+14,290,CX+28,280);c.quadraticCurveTo(CX+36,268,CX+34,248);c.closePath();} },
-            { name:"lham", intensity:i("lham",0.55), phase:0, amp:0, path:c=>{c.moveTo(CX-30,284);c.lineTo(CX-34,388);c.quadraticCurveTo(CX-32,398,CX-24,400);c.lineTo(CX-4,400);c.lineTo(CX-2,284);c.closePath();} },
-            { name:"rham", intensity:i("rham",0.55), phase:0, amp:0, path:c=>{c.moveTo(CX+30,284);c.lineTo(CX+34,388);c.quadraticCurveTo(CX+32,398,CX+24,400);c.lineTo(CX+4,400);c.lineTo(CX+2,284);c.closePath();} },
-            { name:"lcalf", intensity:i("lcalf",0.3), phase:0, amp:0, path:c=>{c.moveTo(CX-32,404);c.lineTo(CX-34,500);c.lineTo(CX-38,530);c.lineTo(CX-6,530);c.lineTo(CX-6,404);c.closePath();} },
-            { name:"rcalf", intensity:i("rcalf",0.3), phase:0, amp:0, path:c=>{c.moveTo(CX+32,404);c.lineTo(CX+34,500);c.lineTo(CX+38,530);c.lineTo(CX+6,530);c.lineTo(CX+6,404);c.closePath();} },
-        ];
-
-        function muscleColor(intensity: number) {
-            if (intensity <= 0.05) return { fill:"rgba(35,42,56,0.9)", stroke:"rgba(55,65,85,0.4)", glow:null as string|null };
-            const t = Math.min(1,(intensity-0.05)/0.95);
-            const r=Math.round(30+t*44),g=Math.round(60+t*162),b=Math.round(50+t*78),a=0.3+t*0.6;
-            return { fill:`rgba(${r},${g},${b},${a})`, stroke:`rgba(74,222,128,${(0.15+t*0.45).toFixed(2)})`, glow:t>0.4?`rgba(74,222,128,${(t*0.25).toFixed(2)})`:null };
-        }
-
-        const muscles = side === "front" ? front : back;
-        const seeds = muscles.map(() => Math.random() * 1000);
-
-        function render() {
-            frameRef.current++;
-            const t = frameRef.current * 0.015;
-            ctx.clearRect(0, 0, W, H);
-            const scanY = (t * 40) % (H + 60) - 30;
-            muscles.forEach((m, idx) => {
-                const breathe = Math.sin(t + m.phase * Math.PI * 2);
-                const flicker = Math.sin(t * 3.9 + seeds[idx]) * 0.02 + Math.sin(t * 7.7 + seeds[idx] * 2.1) * 0.01;
-                const intNow = Math.max(0, Math.min(1, m.intensity * (1 + breathe * m.amp + flicker)));
-                const colors = muscleColor(intNow);
-                if (colors.glow) { ctx.save(); ctx.shadowColor = colors.glow; ctx.shadowBlur = 12 + intNow * 8; ctx.beginPath(); m.path(ctx); ctx.fillStyle = colors.fill; ctx.fill(); ctx.restore(); }
-                ctx.save(); ctx.beginPath(); m.path(ctx); ctx.fillStyle = colors.fill; ctx.fill(); ctx.restore();
-                ctx.save(); ctx.beginPath(); m.path(ctx); ctx.strokeStyle = colors.stroke; ctx.lineWidth = 0.8; ctx.stroke(); ctx.restore();
-            });
-            const sg = ctx.createLinearGradient(0, scanY - 20, 0, scanY + 20);
-            sg.addColorStop(0,"rgba(74,222,128,0)"); sg.addColorStop(0.4,"rgba(74,222,128,0.06)"); sg.addColorStop(0.5,"rgba(74,222,128,0.12)"); sg.addColorStop(0.6,"rgba(74,222,128,0.06)"); sg.addColorStop(1,"rgba(74,222,128,0)");
-            ctx.fillStyle = sg; ctx.fillRect(0, scanY - 20, W, 40);
-            ctx.strokeStyle = "rgba(74,222,128,0.03)"; ctx.lineWidth = 0.5;
-            for (let y=0;y<H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
-            for (let x=0;x<W;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
-            animRef.current = requestAnimationFrame(render);
-        }
-        render();
-        return () => cancelAnimationFrame(animRef.current);
-    }, [activeMuscles, side]);
-
-    return <canvas ref={canvasRef} className="scanner-canvas" width={300} height={560} style={{width:"130px",height:"243px"}} />;
-}
 
 /* ─── MAIN COMPONENT ─── */
 export default function WorkoutCompleteCard({
-    dayTitle, summary, exercisesList, logs, todaySessions, weekDays, prCount, weightUnit,
-    sessionRating, cycleProfile, sharing, maxSessions, sessionCount, nextSession,
-    onRate, onShare, onSchedule, onProgress, onStartAnother,
+    dayTitle, summary, exercisesList, logs, todaySessions, weekDays, prCount, prExerciseIds, weightUnit,
+    cycleProfile, sharing, maxSessions, sessionCount, nextSession,
+    recentSessions, queuedExercises, muscles: musclesProp, onShare, onSchedule, onProgress, onStartAnother,
 }: Props) {
+    const MA_DISCIPLINES = new Set(["boxing", "muay_thai", "kickboxing", "bjj", "wrestling", "judo", "mma", "karate", "taekwondo"]);
     const [openExercise, setOpenExercise] = useState<number | null>(null);
     const [inscription] = useState(() => INSCRIPTIONS[Math.floor(Math.random() * INSCRIPTIONS.length)]);
+    const [activePill, setActivePill] = useState<number | null>(null);
+    const multiSession = todaySessions.length > 1;
     const setsRef = useRef<HTMLSpanElement>(null);
     const volRef = useRef<HTMLSpanElement>(null);
     const durRef = useRef<HTMLSpanElement>(null);
 
-    const hitSegments = useMemo(() => {
-        const s = new Set<string>();
-        exercisesList.forEach(ex => { if (logs[ex.id]?.some(s => s.completed)) s.add(ex.body_segment); });
-        return s;
-    }, [exercisesList, logs]);
+    const activeSession = activePill !== null ? todaySessions[activePill] : null;
+    const isMaSession = activeSession ? activeSession.volume === 0 && activeSession.sets > 0 : false;
+
+    const filteredExercises = useMemo(() => {
+        if (activePill === null) return exercisesList;
+        if (isMaSession) return exercisesList.filter(ex => MA_DISCIPLINES.has(ex.discipline || ""));
+        return exercisesList.filter(ex => !MA_DISCIPLINES.has(ex.discipline || ""));
+    }, [exercisesList, activePill, isMaSession]);
+
+    const segmentIntensities = useMemo(() => {
+        const volBySegment = new Map<string, number>();
+        const countBySegment = new Map<string, number>();
+        filteredExercises.forEach(ex => {
+            const sets = (logs[ex.id] ?? []).filter(s => s.completed && !s.is_warmup);
+            if (sets.length === 0) return;
+            const vol = sets.reduce((sum, s) => sum + (Number(s.weight) || 0) * (Number(s.reps) || 0), 0);
+            const seg = ex.body_segment;
+            if (!seg || seg === "Other" || seg === "Cardio") return;
+            volBySegment.set(seg, (volBySegment.get(seg) || 0) + vol);
+            countBySegment.set(seg, (countBySegment.get(seg) || 0) + sets.length);
+        });
+        if (countBySegment.size === 0) return new Map<string, number>();
+        const maxVol = Math.max(...volBySegment.values());
+        const intensities = new Map<string, number>();
+        if (maxVol > 0) {
+            volBySegment.forEach((vol, seg) => intensities.set(seg, 0.3 + 0.7 * (vol / maxVol)));
+        } else {
+            const maxCount = Math.max(...countBySegment.values());
+            countBySegment.forEach((count, seg) => intensities.set(seg, 0.3 + 0.7 * (count / maxCount)));
+        }
+        return intensities;
+    }, [filteredExercises, logs]);
+
+    const heroMuscles = useMemo<MuscleInput[]>(() => {
+        return Array.from(segmentIntensities.entries()).map(([seg, intensity]) => ({
+            muscle: seg,
+            intensity: Math.round(intensity * 10),
+        }));
+    }, [segmentIntensities]);
 
     type BestMoment = { name: string; weight: number; reps: number; isPr: boolean };
     const bestMoment = useMemo<BestMoment | null>(() => {
         let best: BestMoment | null = null;
         let bestVol = 0;
-        for (const ex of exercisesList) {
+        for (const ex of filteredExercises.filter(e => !MA_DISCIPLINES.has(e.discipline || ""))) {
             for (const s of (logs[ex.id] ?? []).filter(s => s.completed && !s.is_warmup)) {
                 const w = Number(s.weight) || 0, r = Number(s.reps) || 0, v = w * r;
-                if (v > 0 && v > bestVol) { best = { name: ex.name, weight: w, reps: r, isPr: prCount > 0 }; bestVol = v; }
+                if (v > 0 && v > bestVol) { best = { name: ex.name, weight: w, reps: r, isPr: prExerciseIds ? prExerciseIds.has(ex.exercise_id) : prCount > 0 }; bestVol = v; }
             }
         }
         return best;
-    }, [exercisesList, logs, prCount]);
+    }, [filteredExercises, logs, prCount]);
 
-    const exerciseDetails = useMemo(() => exercisesList.map((ex, idx) => {
+    const DISCIPLINE_COLORS: Record<string, string> = {
+        boxing: "#ef4444", muay_thai: "#f97316", kickboxing: "#f97316",
+        bjj: "#a78bfa", wrestling: "#8b5cf6", judo: "#7c3aed", mma: "#ec4899",
+        karate: "#3b82f6", taekwondo: "#60a5fa",
+        calisthenics: "#34d399", cardio: "#fbbf24", mobility: "#22d3ee",
+        strength: "", other: "",
+    };
+
+    const exerciseDetails = useMemo(() => filteredExercises.map((ex, idx) => {
         const sets = (logs[ex.id] ?? []).filter(s => s.completed && !s.is_warmup);
-        return { idx: idx + 1, name: ex.name, sets, segment: ex.body_segment };
-    }).filter(e => e.sets.length > 0), [exercisesList, logs]);
+        const maxW = sets.reduce((m, s) => Math.max(m, Number(s.weight) || 0), 0);
+        const maxSet = sets.find(s => (Number(s.weight) || 0) === maxW);
+        const topReps = maxSet ? (Number(maxSet.reps) || 0) : (sets[0] ? (Number(sets[0].reps) || 0) : 0);
+        const mode = ex.tracking_mode || "weight_reps";
+        const disc = ex.discipline || "strength";
+        return { idx: idx + 1, name: ex.name, sets, segment: ex.body_segment, maxWeight: maxW, topReps, mode, disc };
+    }).filter(e => e.sets.length > 0), [filteredExercises, logs]);
 
     const rpeData = useMemo(() => {
         const d: { rpe: number }[] = [];
-        exercisesList.forEach(ex => (logs[ex.id] ?? []).filter(s => s.completed && !s.is_warmup && s.rpe).forEach(s => d.push({ rpe: s.rpe! })));
+        filteredExercises.filter(ex => !MA_DISCIPLINES.has(ex.discipline || "")).forEach(ex => {
+            (logs[ex.id] ?? []).filter(s => s.completed && !s.is_warmup).forEach(s => {
+                if (s.rpe) {
+                    d.push({ rpe: s.rpe });
+                } else {
+                    const w = Number(s.weight) || 0, r = Number(s.reps) || 0;
+                    const estimated = w > 0 && r > 0 ? Math.min(10, Math.max(4, Math.round(6 + (w * r) / 500))) : 5;
+                    d.push({ rpe: estimated });
+                }
+            });
+        });
         return d;
-    }, [exercisesList, logs]);
+    }, [filteredExercises, logs]);
 
     const doneCount = weekDays.filter(Boolean).length;
     const ringOffset = 113 - (doneCount / 7) * 113;
+    const unit = weightUnit as "kg" | "lbs";
+
+    const combinedStats = useMemo(() => {
+        if (!multiSession) return null;
+        const totalSets = todaySessions.reduce((s, t) => s + t.sets, 0);
+        const totalVol = todaySessions.reduce((s, t) => s + t.volume, 0);
+        const totalDur = todaySessions.reduce((s, t) => s + t.duration, 0);
+        const totalXp = todaySessions.reduce((s, t) => s + t.xp, 0);
+        return { sets: totalSets, volume: totalVol, duration: totalDur, xp: totalXp };
+    }, [multiSession, todaySessions]);
+
+    const displaySets = activeSession ? activeSession.sets : combinedStats ? combinedStats.sets : summary.sets;
+    const displayVol = activeSession ? Math.round(kgToUnit(activeSession.volume, unit)) : combinedStats ? Math.round(kgToUnit(combinedStats.volume, unit)) : Math.round(kgToUnit(summary.volume, unit));
+    const displayDur = activeSession ? activeSession.duration : combinedStats ? combinedStats.duration : summary.duration;
+    const displayDurMin = Math.floor(displayDur / 60);
+    const displayXp = activeSession ? activeSession.xp : combinedStats ? combinedStats.xp : summary.xpBreakdown.total;
+    const displayTitle = activeSession ? activeSession.title : multiSession ? "All Sessions" : dayTitle;
+
     const dur = summary.duration;
     const durMin = Math.floor(dur / 60);
-    const unit = weightUnit as "kg" | "lbs";
     const vol = Math.round(kgToUnit(summary.volume, unit));
     const xpPct = Math.min(((summary.xpBreakdown.total % 100) / 100) * 100, 100);
     const now = new Date();
@@ -378,11 +355,13 @@ export default function WorkoutCompleteCard({
 
     // Counter animation
     useEffect(() => {
+        let cancelled = false;
         const animate = (el: HTMLSpanElement | null, target: number, delay: number) => {
             if (!el) return;
             const node = el;
             const start = performance.now();
             function tick(now: number) {
+                if (cancelled) return;
                 const elapsed = now - start - delay;
                 if (elapsed < 0) { requestAnimationFrame(tick); return; }
                 const p = Math.min(elapsed / 1200, 1);
@@ -392,10 +371,11 @@ export default function WorkoutCompleteCard({
             }
             requestAnimationFrame(tick);
         };
-        animate(setsRef.current, summary.sets, 1100);
-        animate(volRef.current, vol, 1100);
-        animate(durRef.current, durMin, 1100);
-    }, [summary.sets, vol, durMin]);
+        animate(setsRef.current, displaySets, 1100);
+        animate(volRef.current, displayVol, 1100);
+        animate(durRef.current, displayDurMin, 1100);
+        return () => { cancelled = true; };
+    }, [displaySets, displayVol, displayDurMin]);
 
     function rpeColor(rpe: number) {
         if (rpe <= 5) return "#4ade80";
@@ -453,29 +433,22 @@ export default function WorkoutCompleteCard({
 
                         <div className="reveal d2"><Ornament /></div>
 
-                        {/* 2. Workout name + date */}
-                        <div className="reveal d2">
-                            <div className="workout-name">{dayTitle}</div>
-                            <div className="workout-date">{dateStr}</div>
-                        </div>
-
-                        {/* Session Rating */}
-                        <div className="reveal d3">
-                            <div className="rating-section">
-                                <div className="rating-label">HOW WAS THIS SESSION?</div>
-                                <div className="rating-row">
-                                    {[{ emoji:"😵", label:"Brutal" },{ emoji:"😐", label:"Meh" },{ emoji:"😊", label:"Good" },{ emoji:"💪", label:"Strong" },{ emoji:"🔥", label:"Fire" }].map((r,i) => {
-                                        const val = i + 1;
-                                        const selected = sessionRating === val;
-                                        return (
-                                            <button key={val} onClick={() => onRate(val)} className={`rating-btn ${selected ? "selected" : sessionRating ? "dimmed" : ""}`}>
-                                                <span className="rating-emoji">{r.emoji}</span>
-                                                <span className="rating-text">{r.label}</span>
-                                            </button>
-                                        );
-                                    })}
+                        {/* Session pills (multi-session only) */}
+                        {multiSession && (
+                            <div className="reveal d2">
+                                <div className="session-pills">
+                                    <button className={`session-pill ${activePill === null ? "active" : ""}`} onClick={() => setActivePill(null)}>Summary</button>
+                                    {todaySessions.map((s, i) => (
+                                        <button key={s.id} className={`session-pill ${activePill === i ? "active" : ""}`} onClick={() => setActivePill(i)}>{s.title}</button>
+                                    ))}
                                 </div>
                             </div>
+                        )}
+
+                        {/* 2. Workout name + date */}
+                        <div className="reveal d2">
+                            <div className="workout-name">{displayTitle}</div>
+                            <div className="workout-date">{dateStr}</div>
                         </div>
 
                         {/* Cycle phase */}
@@ -510,7 +483,7 @@ export default function WorkoutCompleteCard({
                             <div className="xp-section">
                                 <div className="xp-header">
                                     <span className="xp-label">EXPERIENCE</span>
-                                    <span className="xp-earned">+{summary.xpBreakdown.total} XP</span>
+                                    <span className="xp-earned">+{displayXp} XP</span>
                                 </div>
                                 <div className="xp-bar-track" style={{"--xp-pct":`${xpPct}%`} as React.CSSProperties}>
                                     <div className="xp-bar-fill" />
@@ -522,8 +495,8 @@ export default function WorkoutCompleteCard({
                             </div>
                         </div>
 
-                        {/* 5. Best moment */}
-                        {bestMoment && (
+                        {/* 5. Best moment (only on summary or gym sessions with volume) */}
+                        {bestMoment && (activePill === null || (activeSession && activeSession.volume > 0)) && (
                             <div className="reveal d6">
                                 <div className="best-moment">
                                     <div className="best-moment-icon">{"⚔"}</div>
@@ -538,8 +511,8 @@ export default function WorkoutCompleteCard({
                             </div>
                         )}
 
-                        {/* 6. RPE heatmap */}
-                        {rpeData.length > 0 && (
+                        {/* 6. RPE heatmap (only on summary or gym sessions with volume) */}
+                        {rpeData.length > 0 && (activePill === null || (activeSession && activeSession.volume > 0)) && (
                             <div className="reveal d7">
                                 <div className="rpe-section">
                                     <div className="rpe-label">INTENSITY BY SET</div>
@@ -559,32 +532,83 @@ export default function WorkoutCompleteCard({
 
                         <div className="reveal d7"><Ornament /></div>
 
-                        {/* 7. Exercise list */}
+                        {/* 5.4: Category breakdown timeline */}
+                        {exerciseDetails.length > 0 && (() => {
+                            const cats = new Map<string, { count: number; sets: number; disc: string }>();
+                            exerciseDetails.forEach(ex => {
+                                const key = ex.disc !== "strength" && DISCIPLINE_COLORS[ex.disc] ? ex.disc : ex.segment;
+                                const prev = cats.get(key) ?? { count: 0, sets: 0, disc: ex.disc };
+                                cats.set(key, { count: prev.count + 1, sets: prev.sets + ex.sets.length, disc: ex.disc });
+                            });
+                            const total = exerciseDetails.reduce((s, e) => s + e.sets.length, 0);
+                            if (cats.size <= 1) return null;
+                            const SEGMENT_COLORS: Record<string, string> = { Chest: "#ef4444", Shoulders: "#f97316", Back: "#3b82f6", Arms: "#a855f7", Legs: "#10b981", Core: "#eab308", Cardio: "#ec4899", Other: "#6b7280" };
+                            return (
+                                <div className="reveal d7">
+                                    <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:7,letterSpacing:2,color:"var(--fg-35)",marginBottom:8}}>SESSION BREAKDOWN</div>
+                                    <div style={{display:"flex",gap:2,height:8,borderRadius:4,overflow:"hidden",marginBottom:8}}>
+                                        {Array.from(cats.entries()).map(([key, val]) => (
+                                            <div key={key} style={{ flex: val.sets / total, background: DISCIPLINE_COLORS[key] || SEGMENT_COLORS[key] || SEGMENT_COLORS.Other, borderRadius: 2, minWidth: 4 }} />
+                                        ))}
+                                    </div>
+                                    <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                                        {Array.from(cats.entries()).map(([key, val]) => (
+                                            <div key={key} style={{display:"flex",alignItems:"center",gap:4}}>
+                                                <div style={{width:6,height:6,borderRadius:3,background: DISCIPLINE_COLORS[key] || SEGMENT_COLORS[key] || SEGMENT_COLORS.Other}} />
+                                                <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:8,color:"var(--fg-50)"}}>{key.replace(/_/g," ")} · {val.count}ex · {val.sets}s</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            );
+                        })()}
+
+                        {/* 7. Exercise list (only when viewing summary or last session) */}
                         {exerciseDetails.length > 0 && (
                             <div className="reveal d8">
                                 <div className="exercise-header-label">EXERCISES LOGGED</div>
                                 <div className="exercise-list">
                                     {exerciseDetails.map((ex) => {
                                         const isOpen = openExercise === ex.idx;
-                                        const totalW = ex.sets.length > 0 ? (Number(ex.sets[0].weight) || 0) : 0;
-                                        const totalR = ex.sets.length > 0 ? (Number(ex.sets[0].reps) || 0) : 0;
+                                        const discColor = DISCIPLINE_COLORS[ex.disc] || "";
+                                        const intensityLabel = (v: number) => v <= 1 ? "Light" : v >= 3 ? "Hard" : "Med";
+                                        const fmtSec = (sec: number) => sec >= 60 ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}` : `${sec}s`;
                                         return (
                                             <div key={ex.idx} className={`exercise-row ${isOpen ? "open" : ""}`} onClick={() => setOpenExercise(isOpen ? null : ex.idx)}>
                                                 <div className="exercise-main">
                                                     <div className="exercise-name">
+                                                        {discColor && <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: discColor, marginRight: 6, flexShrink: 0 }} />}
                                                         <span className="exercise-idx">{ex.idx}</span>
                                                         <span className="exercise-name-text">{ex.name}</span>
                                                     </div>
                                                     <div className="exercise-detail">
-                                                        {ex.sets.length}×{totalR} · {kgToUnit(totalW, unit)}{weightUnit}
+                                                        {ex.mode === "rounds_duration" ? (
+                                                            <>{ex.sets.length} {ex.sets.length === 1 ? "round" : "rounds"}</>
+                                                        ) : ex.mode === "duration_only" ? (
+                                                            <>{ex.sets.length} {ex.sets.length === 1 ? "hold" : "holds"}</>
+                                                        ) : ex.mode === "distance_time" ? (
+                                                            <>{ex.sets[0]?.duration ? `${ex.sets[0].duration}min` : ""}{ex.sets[0]?.distance ? ` · ${ex.sets[0].distance}km` : ""}</>
+                                                        ) : (
+                                                            <>{ex.sets.length}×{ex.topReps} · {kgToUnit(ex.maxWeight, unit)}{weightUnit}</>
+                                                        )}
                                                         <span className="expand-arrow">{"▾"}</span>
                                                     </div>
                                                 </div>
                                                 <div className="set-detail">
                                                     {ex.sets.map((s, j) => (
                                                         <div key={j} className="set-line">
-                                                            <span className="set-num">Set {j + 1}</span>
-                                                            <span className="set-data">{kgToUnit(Number(s.weight) || 0, unit)}{weightUnit} × {s.reps}</span>
+                                                            <span className="set-num">{ex.mode === "rounds_duration" ? `R${j + 1}` : ex.mode === "duration_only" ? `Hold ${j + 1}` : `Set ${j + 1}`}</span>
+                                                            <span className="set-data">
+                                                                {ex.mode === "rounds_duration" ? (
+                                                                    <>{fmtSec(Number(s.duration) || 0)} · {intensityLabel(Number(s.reps) || 2)}</>
+                                                                ) : ex.mode === "duration_only" ? (
+                                                                    <>{fmtSec(Number(s.duration) || 0)}</>
+                                                                ) : ex.mode === "distance_time" ? (
+                                                                    <>{s.duration ? `${s.duration}min` : ""}{s.distance ? ` · ${s.distance}km` : ""}{s.weight ? ` · ${s.weight}km/h` : ""}</>
+                                                                ) : (
+                                                                    <>{kgToUnit(Number(s.weight) || 0, unit)}{weightUnit} × {s.reps}</>
+                                                                )}
+                                                            </span>
                                                             {s.rpe && <span className={`set-rpe ${rpeClass(s.rpe)}`}>RPE {s.rpe}</span>}
                                                         </div>
                                                     ))}
@@ -596,25 +620,24 @@ export default function WorkoutCompleteCard({
                             </div>
                         )}
 
-                        {/* 8. Muscle scanner */}
-                        {hitSegments.size > 0 && (
+                        {/* 8. Muscle map */}
+                        {(heroMuscles.length > 0 || (musclesProp && musclesProp.length > 0)) && (
                             <div className="reveal d9">
                                 <div className="muscle-section">
                                     <div className="muscle-label">MUSCLES ACTIVATED</div>
-                                    <div className="scanner-wrap">
-                                        <div className="scanner-view">
-                                            <div className="scanner-view-label">FRONT</div>
-                                            <MuscleScanner hitSegments={hitSegments} side="front" />
-                                        </div>
-                                        <div className="scanner-view">
-                                            <div className="scanner-view-label">BACK</div>
-                                            <MuscleScanner hitSegments={hitSegments} side="back" />
-                                        </div>
-                                    </div>
+                                    <MuscleHeatMap muscles={heroMuscles.length > 0 ? heroMuscles : musclesProp!} height={320} showToggle showLegend={false} />
                                     <div className="muscle-tags">
-                                        {Array.from(hitSegments).filter(s => s !== "Cardio" && s !== "Other").map(seg => (
-                                            <span key={seg} className="muscle-tag primary">{seg}</span>
-                                        ))}
+                                        {(heroMuscles.length > 0
+                                            ? Array.from(segmentIntensities.entries())
+                                                .filter(([s]) => s !== "Cardio" && s !== "Other")
+                                                .sort((a, b) => b[1] - a[1])
+                                            : (musclesProp ?? [])
+                                                .filter(m => m.muscle !== "Cardio" && m.muscle !== "Other")
+                                                .sort((a, b) => b.intensity - a.intensity)
+                                                .map(m => [m.muscle, m.intensity / 10] as [string, number])
+                                        ).map(([seg, intensity]) => (
+                                                <span key={seg} className={`muscle-tag ${intensity > 0.7 ? "primary" : "secondary"}`}>{seg}</span>
+                                            ))}
                                     </div>
                                 </div>
                             </div>
@@ -648,6 +671,24 @@ export default function WorkoutCompleteCard({
                                         <div className="next-label">UP NEXT</div>
                                         <div className="next-name">{nextSession.name}</div>
                                         <div className="next-meta">{nextSession.dayLabel} · {nextSession.exerciseCount} exercises</div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 2.7 Queued exercises prompt */}
+                        {queuedExercises && queuedExercises.length > 0 && (
+                            <div className="reveal d10">
+                                <div style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid rgba(251,191,36,0.15)", background: "rgba(251,191,36,0.04)" }}>
+                                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, letterSpacing: 2, color: "#fbbf24", opacity: 0.7, marginBottom: 6 }}>STILL QUEUED TODAY</div>
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                        {queuedExercises.map((q, i) => (
+                                            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                                <div style={{ width: 4, height: 4, borderRadius: 2, background: "rgba(251,191,36,0.5)", flexShrink: 0 }} />
+                                                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "var(--fg-60)" }}>{q.name}</span>
+                                                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: "var(--fg-25)", marginLeft: "auto" }}>{q.type}</span>
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
                             </div>
@@ -702,6 +743,30 @@ export default function WorkoutCompleteCard({
                     </div>
                 </div>
             </div>
+
+            {/* Recent Sessions — outside the scroll card */}
+            {recentSessions?.length > 0 && (
+                <div className="recent-section">
+                    <div className="recent-header">
+                        <span className="recent-title">RECENT SESSIONS</span>
+                        <button className="recent-view-all" onClick={onProgress}>View All</button>
+                    </div>
+                    <div className="recent-list">
+                        {recentSessions.slice(0, 5).map((s) => {
+                            const d = new Date(s.date + "T00:00:00");
+                            const today = new Date();
+                            const diffDays = Math.round((today.getTime() - d.getTime()) / 86400000);
+                            const label = diffDays === 0 ? "Today" : diffDays === 1 ? "Yesterday" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                            return (
+                                <div key={s.id} className="recent-row">
+                                    <span className="recent-name">{s.title}</span>
+                                    <span className="recent-date">{label}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
         </>
     );
 }
