@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Scale, TrendingDown, TrendingUp, Target, ArrowRight } from "lucide-react";
+import { ChevronLeft, Scale, TrendingDown, TrendingUp, Target, ArrowRight, Trash2 } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
 import { useAuth } from "../../../lib/AuthProvider";
 import { useSex } from "../../../lib/useSex";
@@ -39,6 +39,14 @@ type BodyWeightEntry = {
     date: string;
     rawDate: string;
     ema?: number;
+};
+
+type RawWeightLog = {
+    id: string;
+    weight: number;
+    logged_at: string;
+    context: string | null;
+    date: string | null;
 };
 
 type WeightGoal = {
@@ -112,6 +120,8 @@ export default function WeightPage() {
     const [measurements, setMeasurements] = useState<Record<string, number | null>>({});
     const [activeMeasurement, setActiveMeasurement] = useState<MeasurementType | null>(null);
     const [weightGoal, setWeightGoal] = useState<WeightGoal | null>(null);
+    const [rawLogs, setRawLogs] = useState<RawWeightLog[]>([]);
+    const [deletingId, setDeletingId] = useState<string | null>(null);
 
     /* ── Data loading ── */
 
@@ -120,7 +130,7 @@ export default function WeightPage() {
         const [{ data: logs }, { data: trend }] = await Promise.all([
             supabase
                 .from("body_weight_logs")
-                .select("weight, logged_at, context, date")
+                .select("id, weight, logged_at, context, date")
                 .eq("user_id", user.id)
                 .eq("sex", userSex)
                 .order("logged_at", { ascending: true })
@@ -156,6 +166,13 @@ export default function WeightPage() {
             });
 
         setBodyWeightData(entries);
+        setRawLogs((logs ?? []).map((d: any) => ({
+            id: d.id,
+            weight: Number(d.weight),
+            logged_at: d.logged_at,
+            context: d.context,
+            date: d.date,
+        })).reverse());
     }, [user, userSex]);
 
     const loadMeasurements = useCallback(async () => {
@@ -227,6 +244,17 @@ export default function WeightPage() {
 
         setNewWeight("");
         await loadBodyWeight();
+    }
+
+    /* ── Delete weight log ── */
+
+    async function deleteWeightLog(id: string) {
+        if (!user) return;
+        setDeletingId(id);
+        await supabase.from("body_weight_logs").delete().eq("id", id).eq("user_id", user.id);
+        await rematerializeWeightTrend(user.id, userSex);
+        await loadBodyWeight();
+        setDeletingId(null);
     }
 
     /* ── Display data ── */
@@ -585,6 +613,54 @@ export default function WeightPage() {
                                 </div>
                             );
                         })()}
+
+                        {/* ── Recent Logs with Delete ── */}
+                        {rawLogs.length > 0 && (
+                            <div className="rounded-lg border border-[var(--fg-08)] bg-[var(--fg-02)] p-4">
+                                <p className="text-[10px] font-mono tracking-widest text-[var(--fg-25)] mb-3">RECENT LOGS</p>
+                                <div className="space-y-1">
+                                    {rawLogs.slice(0, 20).map((log) => {
+                                        const displayW = Math.round(kgToUnit(log.weight, weightUnit) * 10) / 10;
+                                        const dt = new Date(log.logged_at);
+                                        const dateStr = dt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+                                        const timeStr = dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+                                        const ctxLabel = log.context ? WEIGHT_CONTEXTS.find((c) => c.value === log.context)?.label ?? log.context.toUpperCase() : "";
+
+                                        return (
+                                            <div
+                                                key={log.id}
+                                                className="flex items-center justify-between py-2 px-2 rounded-md hover:bg-[var(--fg-04)] transition group"
+                                            >
+                                                <div className="flex items-center gap-3 min-w-0">
+                                                    <div className="w-1.5 h-1.5 rounded-full bg-[rgb(var(--accent-rgb)/0.5)] shrink-0" />
+                                                    <div className="min-w-0">
+                                                        <div className="flex items-baseline gap-2">
+                                                            <span className="text-sm font-bold font-mono text-[var(--fg-80)]">{displayW}</span>
+                                                            <span className="text-[9px] font-mono text-[var(--fg-30)]">{unitLabel}</span>
+                                                            {ctxLabel && (
+                                                                <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-[var(--fg-06)] text-[var(--fg-30)]">{ctxLabel}</span>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-[9px] font-mono text-[var(--fg-20)]">{dateStr} · {timeStr}</p>
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    onClick={() => deleteWeightLog(log.id)}
+                                                    disabled={deletingId === log.id}
+                                                    className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center text-[var(--fg-20)] hover:text-red-400 hover:bg-red-400/10 md:opacity-0 md:group-hover:opacity-100 transition-all disabled:opacity-50"
+                                                >
+                                                    {deletingId === log.id ? (
+                                                        <span className="w-3 h-3 border border-[var(--fg-20)] border-t-transparent rounded-full animate-spin" />
+                                                    ) : (
+                                                        <Trash2 size={13} />
+                                                    )}
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
