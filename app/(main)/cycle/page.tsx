@@ -22,11 +22,10 @@ import {
   getPhaseIntelligence, computeCycleScore, getWellnessSuggestions, ENERGY_LABELS, SLEEP_LABELS, MEDICAL_DISCLAIMER,
   type PhaseIntelligence, type HealthFlag, type CycleScore, type SymptomPrediction, type WellnessSuggestion,
 } from "../../lib/menstrualEngine";
+import { getPhaseTrainingProfile, type PhaseTrainingProfile } from "../../lib/cycleTrainingEngine";
 import CubeLoader from "../../components/ui/cube-loader";
 import { staggerContainer, staggerItem, tabContent } from "../../lib/motion";
 import AnimatedTabs from "../../components/ui/animated-tabs";
-import SwipeNav from "../../components/ui/swipe-nav";
-import { getTrackSections } from "../../lib/navPills";
 import { useModules } from "../../lib/useModules";
 
 type Tab = "today" | "log" | "insights" | "learn";
@@ -257,6 +256,17 @@ export default function CyclePage() {
   const fertMeta = insight ? FERTILITY_META[insight.fertility] : FERTILITY_META.none;
   const activePeriod = logs[0] && !logs[0].period_end ? logs[0] : null;
 
+  const trainingProfile: PhaseTrainingProfile | null = insight
+    ? getPhaseTrainingProfile(
+        insight.currentPhase as any,
+        insight.cycleDay,
+        insight.phaseDaysRemaining,
+        hormonalBc,
+        todaySymptoms.length > 0 ? todaySymptoms : undefined,
+        todayEnergy,
+      )
+    : null;
+
   function fmtDate(d: string) {
     return new Date(d + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
   }
@@ -265,7 +275,10 @@ export default function CyclePage() {
     <main className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] pb-24 md:pb-10 relative">
 
       <div className="relative z-10 max-w-xl mx-auto px-4 pt-6 space-y-4">
-        <SwipeNav sections={getTrackSections(enabledKeys)} />
+        <button onClick={() => router.push("/track")} className="flex items-center gap-1 text-[var(--fg-40)] hover:text-[var(--fg-60)] transition">
+          <ChevronLeft size={18} />
+          <span className="text-xs font-mono">Track</span>
+        </button>
 
         {/* ── Phase Hero ── */}
         {insight && (
@@ -369,24 +382,48 @@ export default function CyclePage() {
                 <p className="text-[12px] text-[var(--fg-60)] leading-relaxed pl-2">{insight.phaseInfo}</p>
               </div>
 
-              {/* Training & Nutrition — compact cards */}
-              <div className="grid grid-cols-2 gap-2">
-                <div className="glass-card p-3 relative overflow-hidden">
-                  <div className="absolute top-0 left-0 w-0.5 h-full bg-green-400/40 rounded-r" />
-                  <div className="flex items-center gap-1.5 mb-2 pl-1.5">
-                    <Zap size={11} className={phaseStyle.text} />
-                    <span className="text-[8px] font-mono tracking-widest text-[var(--fg-25)]">TRAINING</span>
+              {/* Training recommendation from cycleTrainingEngine (#31) */}
+              {trainingProfile && (
+                <div className="glass-card p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Zap size={14} className={phaseStyle.text} />
+                    <span className="text-[9px] font-mono tracking-widest text-[var(--fg-25)]">TRAINING ADJUSTMENTS</span>
                   </div>
-                  <p className="text-[10px] text-[var(--fg-55)] leading-relaxed pl-1.5">{insight.trainingRec}</p>
-                </div>
-                <div className="glass-card p-3 relative overflow-hidden">
-                  <div className="absolute top-0 left-0 w-0.5 h-full bg-amber-400/40 rounded-r" />
-                  <div className="flex items-center gap-1.5 mb-2 pl-1.5">
-                    <Heart size={11} className={phaseStyle.text} />
-                    <span className="text-[8px] font-mono tracking-widest text-[var(--fg-25)]">NUTRITION</span>
+                  <div className="rounded-lg p-3 border" style={{ borderColor: trainingProfile.banner.color + "30", background: trainingProfile.banner.color + "08" }}>
+                    <p className="text-sm font-bold" style={{ color: trainingProfile.banner.color }}>{trainingProfile.banner.headline}</p>
+                    <p className="text-[10px] text-[var(--fg-50)] mt-1 leading-relaxed">{trainingProfile.banner.detail}</p>
                   </div>
-                  <p className="text-[10px] text-[var(--fg-55)] leading-relaxed pl-1.5">{insight.nutritionRec}</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="rounded-lg bg-[var(--fg-02)] border border-[var(--fg-06)] p-2 text-center">
+                      <p className="text-lg font-bold font-mono text-[var(--fg-80)]">{Math.round(trainingProfile.intensityModifier * 100)}%</p>
+                      <p className="text-[7px] font-mono text-[var(--fg-25)]">INTENSITY</p>
+                    </div>
+                    <div className="rounded-lg bg-[var(--fg-02)] border border-[var(--fg-06)] p-2 text-center">
+                      <p className="text-lg font-bold font-mono text-[var(--fg-80)]">{Math.round(trainingProfile.volumeModifier * 100)}%</p>
+                      <p className="text-[7px] font-mono text-[var(--fg-25)]">VOLUME</p>
+                    </div>
+                    <div className="rounded-lg bg-[var(--fg-02)] border border-[var(--fg-06)] p-2 text-center">
+                      <p className="text-lg font-bold font-mono text-[var(--fg-80)]">{trainingProfile.restMultiplier}x</p>
+                      <p className="text-[7px] font-mono text-[var(--fg-25)]">REST</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px]">
+                    <span className="px-2 py-0.5 rounded-md bg-[var(--fg-04)] font-mono text-[var(--fg-40)]">{trainingProfile.styleName}</span>
+                    <span className="text-[var(--fg-30)]">Warm-up: {trainingProfile.warmUpGuidance.minutes}min {trainingProfile.warmUpGuidance.focus}</span>
+                  </div>
                 </div>
+              )}
+
+              {/* Nutrition */}
+              <div className="glass-card p-3 relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-0.5 h-full bg-amber-400/40 rounded-r" />
+                <div className="flex items-center gap-1.5 mb-2 pl-1.5">
+                  <Heart size={11} className={phaseStyle.text} />
+                  <span className="text-[8px] font-mono tracking-widest text-[var(--fg-25)]">NUTRITION</span>
+                </div>
+                <p className="text-[10px] text-[var(--fg-55)] leading-relaxed pl-1.5">
+                  {trainingProfile?.nutritionTip ?? insight.nutritionRec}
+                </p>
               </div>
               <p className="text-[7px] font-mono text-[var(--fg-12)] leading-relaxed -mt-1 px-1">{MEDICAL_DISCLAIMER}</p>
 

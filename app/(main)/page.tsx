@@ -755,7 +755,7 @@ export default function Dashboard() {
 
   function handleTodayAction() {
     if (todayPlan?.completed) {
-      router.push("/progress");
+      router.push("/track");
     } else if (!todayPlan || todayPlan.is_rest || todayPlan.count === 0) {
       router.push("/schedule");
     } else {
@@ -885,7 +885,7 @@ export default function Dashboard() {
                 <p className="text-[9px] font-mono tracking-widest text-yellow-400/60 mb-0.5">NEW PERSONAL RECORD</p>
                 <p className="text-sm font-semibold text-yellow-300/90 truncate">{recentPR.exercise}</p>
               </div>
-              <button onClick={() => router.push("/progress")} className="shrink-0 px-3 py-1.5 rounded-lg bg-yellow-400/10 border border-yellow-400/20 text-[10px] font-mono text-yellow-400/80 hover:text-yellow-300 transition">
+              <button onClick={() => router.push("/track")} className="shrink-0 px-3 py-1.5 rounded-lg bg-yellow-400/10 border border-yellow-400/20 text-[10px] font-mono text-yellow-400/80 hover:text-yellow-300 transition">
                 View
               </button>
             </div>
@@ -1205,7 +1205,7 @@ export default function Dashboard() {
                     <p className="text-[11px] font-mono text-[var(--fg-30)] mt-0.5">{todayPlan.sets} sets completed</p>
                   </div>
                 </div>
-                <button onClick={() => router.push("/progress")} className="shrink-0 px-4 py-2 rounded-xl bg-[var(--fg-06)] border border-[var(--fg-08)] text-xs font-medium text-[var(--fg-60)] hover:text-[var(--fg-90)] hover:bg-[var(--fg-10)] transition flex items-center gap-1.5">
+                <button onClick={() => router.push("/track")} className="shrink-0 px-4 py-2 rounded-xl bg-[var(--fg-06)] border border-[var(--fg-08)] text-xs font-medium text-[var(--fg-60)] hover:text-[var(--fg-90)] hover:bg-[var(--fg-10)] transition flex items-center gap-1.5">
                   Progress <ChevronRight size={12} />
                 </button>
               </div>
@@ -1450,7 +1450,7 @@ export default function Dashboard() {
         <motion.div variants={staggerItem} className="grid grid-cols-3 gap-2.5" style={{ order: 80 }}>
           {[
             { label: "Schedule", icon: <Calendar size={16} />, href: "/schedule", module: "gym" as const },
-            { label: "Progress", icon: <TrendingUp size={16} />, href: "/progress", module: "progress" as const },
+            { label: "Progress", icon: <TrendingUp size={16} />, href: "/track", module: "progress" as const },
             { label: "Recovery", icon: <HeartPulse size={16} />, href: "/recovery", module: "recovery" as const },
           ].filter((l) => isEnabled(l.module)).map((link) => (
             <button

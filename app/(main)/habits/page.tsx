@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useRouter } from "next/navigation";
 import {
   Flame, Plus, Check, Trash2, Star, Sparkles, Sun, Moon, Clock,
   Link, Dumbbell, Droplets, Scale, ChevronLeft, ChevronRight,
@@ -10,8 +11,6 @@ import {
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from "framer-motion";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/AuthProvider";
-import SwipeNav from "../../components/ui/swipe-nav";
-import { getTrackSections } from "../../lib/navPills";
 import { useModules } from "../../lib/useModules";
 import CubeLoader from "../../components/ui/cube-loader";
 import { staggerContainer, staggerItem } from "../../lib/motion";
@@ -659,6 +658,7 @@ function UndoToast({ message, onUndo, onClose }: { message: string; onUndo: () =
 // ─── Main page ──────────────────────────────────────────────────────────────
 
 export default function HabitsPage() {
+  const router = useRouter();
   const { user, profile } = useAuth();
   const { enabledKeys } = useModules();
 
@@ -780,6 +780,43 @@ export default function HabitsPage() {
   }, [user, habits, completionSet]);
   const auraLevel = getAuraLevel(avgMomentum);
   const aura = AURA_STYLES[auraLevel];
+
+  const [showWeeklyReview, setShowWeeklyReview] = useState(false);
+  const weeklyReview = useMemo(() => {
+    if (habits.length === 0) return null;
+    const now = new Date();
+    const last7: string[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      last7.push(localDateStr(d));
+    }
+    let totalScheduled = 0;
+    let totalCompleted = 0;
+    const perHabit: { name: string; icon: string; completed: number; scheduled: number; rate: number }[] = [];
+    for (const h of habits) {
+      let sched = 0;
+      let comp = 0;
+      for (const dateStr of last7) {
+        const d = new Date(dateStr + "T12:00:00");
+        if (isHabitScheduledForDay(h, d)) {
+          sched++;
+          if (completionSet.has(`${h.id}:${dateStr}`)) comp++;
+        }
+      }
+      if (sched > 0) {
+        totalScheduled += sched;
+        totalCompleted += comp;
+        perHabit.push({ name: h.name, icon: h.icon || "✅", completed: comp, scheduled: sched, rate: Math.round((comp / sched) * 100) });
+      }
+    }
+    if (totalScheduled === 0) return null;
+    const hitRate = Math.round((totalCompleted / totalScheduled) * 100);
+    const best = perHabit.filter(h => h.rate === 100).sort((a, b) => b.scheduled - a.scheduled);
+    const worst = perHabit.filter(h => h.rate < 100).sort((a, b) => a.rate - b.rate);
+    const longestStreak = habits.reduce((max, h) => Math.max(max, calculateStreak(h, completionSet, skipSet)), 0);
+    return { hitRate, totalCompleted, totalScheduled, best, worst, longestStreak, perHabit };
+  }, [habits, completionSet]);
 
   // ─── Actions ────────────────────────────────────────────────────────────
 
@@ -972,7 +1009,10 @@ export default function HabitsPage() {
   return (
     <main className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] pb-24 md:pb-10 relative">
       <div className="relative z-10 max-w-xl mx-auto px-4 pt-6 space-y-4">
-        <SwipeNav sections={getTrackSections(enabledKeys)} />
+        <button onClick={() => router.push("/track")} className="flex items-center gap-1 text-[var(--fg-40)] hover:text-[var(--fg-60)] transition">
+          <ChevronLeft size={18} />
+          <span className="text-xs font-mono">Track</span>
+        </button>
 
         {/* Header with aura */}
         <div className="flex items-center justify-between">
@@ -1234,6 +1274,84 @@ export default function HabitsPage() {
 
             {/* Constellation view */}
             {view === "constellation" && <ConstellationSky habits={habits} completionSet={completionSet} />}
+
+            {/* Weekly Review Card (#30) */}
+            {view === "today" && weeklyReview && (
+              <div className="rounded-xl border border-[var(--fg-06)] bg-[var(--fg-02)] overflow-hidden">
+                <button
+                  onClick={() => setShowWeeklyReview(p => !p)}
+                  className="w-full flex items-center justify-between p-4 hover:bg-[var(--fg-01)] transition"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
+                      <Scroll size={14} className="text-purple-400" />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-xs font-bold text-[var(--fg-80)]">Weekly Review</p>
+                      <p className="text-[10px] font-mono text-[var(--fg-30)]">
+                        {weeklyReview.hitRate}% hit rate · {weeklyReview.totalCompleted}/{weeklyReview.totalScheduled} completed
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight size={14} className={`text-[var(--fg-20)] transition-transform ${showWeeklyReview ? "rotate-90" : ""}`} />
+                </button>
+                <AnimatePresence>
+                  {showWeeklyReview && (
+                    <motion.div
+                      initial={{ height: 0 }}
+                      animate={{ height: "auto" }}
+                      exit={{ height: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="px-4 pb-4 space-y-3 border-t border-[var(--fg-04)]">
+                        {/* Overall stats */}
+                        <div className="grid grid-cols-3 gap-2 mt-3">
+                          <div className="rounded-lg bg-[var(--fg-02)] border border-[var(--fg-06)] p-2 text-center">
+                            <p className="text-lg font-bold font-mono text-[var(--fg-90)]">{weeklyReview.hitRate}%</p>
+                            <p className="text-[8px] font-mono text-[var(--fg-25)]">HIT RATE</p>
+                          </div>
+                          <div className="rounded-lg bg-[var(--fg-02)] border border-[var(--fg-06)] p-2 text-center">
+                            <p className="text-lg font-bold font-mono text-[var(--fg-90)]">{weeklyReview.longestStreak}</p>
+                            <p className="text-[8px] font-mono text-[var(--fg-25)]">BEST STREAK</p>
+                          </div>
+                          <div className="rounded-lg bg-[var(--fg-02)] border border-[var(--fg-06)] p-2 text-center">
+                            <p className="text-lg font-bold font-mono text-[var(--fg-90)]">{perfectWeeks}</p>
+                            <p className="text-[8px] font-mono text-[var(--fg-25)]">PERFECT WKS</p>
+                          </div>
+                        </div>
+                        {/* Best habits */}
+                        {weeklyReview.best.length > 0 && (
+                          <div>
+                            <p className="text-[9px] font-mono text-emerald-400/60 mb-1.5">PERFECT THIS WEEK</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {weeklyReview.best.slice(0, 5).map(h => (
+                                <span key={h.name} className="flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/15 text-[10px] text-emerald-300">
+                                  {h.icon} {h.name}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {/* Needs work */}
+                        {weeklyReview.worst.length > 0 && (
+                          <div>
+                            <p className="text-[9px] font-mono text-amber-400/60 mb-1.5">NEEDS ATTENTION</p>
+                            <div className="space-y-1">
+                              {weeklyReview.worst.slice(0, 3).map(h => (
+                                <div key={h.name} className="flex items-center justify-between text-[10px]">
+                                  <span className="text-[var(--fg-50)]">{h.icon} {h.name}</span>
+                                  <span className="font-mono text-amber-300">{h.completed}/{h.scheduled} ({h.rate}%)</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
 
             {/* Smart Insights */}
             {view === "today" && (insights.length > 0 || correlationInsights.length > 0) && (

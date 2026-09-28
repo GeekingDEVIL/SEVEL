@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { HeartPulse, TrendingUp, TrendingDown, Minus, AlertCircle, ChevronLeft, Zap, Clock, Dumbbell, Activity, ShieldCheck, ShieldAlert, Shield, ShieldX, Droplets } from "lucide-react";
+import { HeartPulse, TrendingUp, TrendingDown, Minus, AlertCircle, ChevronLeft, Zap, Clock, Dumbbell, Activity, ShieldCheck, ShieldAlert, Shield, ShieldX, Droplets, AlertTriangle, Calendar } from "lucide-react";
 import { motion } from "framer-motion";
 import { useAuth } from "../../lib/AuthProvider";
 import { supabase } from "../../lib/supabase";
@@ -10,10 +10,9 @@ import { analyzeRecovery, type MuscleRecoveryData, type RecoveryStatus, type Rec
 import { analyzeAdaptiveVolume, getVolumeStatus, getVolumeGuidelines, type AdaptiveVolumeData } from "../../lib/volumeAnalysis";
 import type { Sex } from "../../lib/calorieEngine";
 import { useSex } from "../../lib/useSex";
+import MuscleHeatMap from "../../components/MuscleHeatMap";
 import CubeLoader from "../../components/ui/cube-loader";
 import { staggerContainer, staggerItem } from "../../lib/motion";
-import SwipeNav from "../../components/ui/swipe-nav";
-import { getTrackSections } from "../../lib/navPills";
 import { useModules } from "../../lib/useModules";
 
 function getWeekStart(d: Date): string {
@@ -97,6 +96,7 @@ export default function RecoveryPage() {
   const [diagnostics, setDiagnostics] = useState<RecoveryDiagnostics | null>(null);
   const [loading, setLoading] = useState(true);
   const [expandedSegment, setExpandedSegment] = useState<string | null>(null);
+  const [tomorrowConflicts, setTomorrowConflicts] = useState<string[]>([]);
   const { sex: userSex } = useSex();
 
   useEffect(() => {
@@ -111,6 +111,35 @@ export default function RecoveryPage() {
       setRecoveryData(recovery.data);
       setDiagnostics(recovery.diagnostics);
       setAdaptiveData(adaptive);
+
+      // Check tomorrow's schedule for conflicts
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
+      const { data: tomorrowPlan } = await supabase
+        .from("scheduled_plans")
+        .select("plan_id")
+        .eq("user_id", user.id)
+        .eq("date", tomorrowStr)
+        .limit(1);
+
+      if (!cancelled && tomorrowPlan?.[0]?.plan_id) {
+        const { data: exercises } = await supabase
+          .from("scheduled_exercises")
+          .select("body_part")
+          .eq("plan_id", tomorrowPlan[0].plan_id);
+        if (!cancelled && exercises) {
+          const tomorrowMuscles = [...new Set(exercises.map((e: any) => e.body_part).filter(Boolean))];
+          const fatigued = Object.entries(recovery.data)
+            .filter(([, m]) => m.recoveryPct < 50)
+            .map(([, m]) => m.segment);
+          const conflicts = tomorrowMuscles.filter((m: string) =>
+            fatigued.some(f => f.toLowerCase() === m.toLowerCase())
+          );
+          setTomorrowConflicts(conflicts as string[]);
+        }
+      }
+
       setLoading(false);
     })();
     return () => { cancelled = true; };
@@ -123,6 +152,9 @@ export default function RecoveryPage() {
   const avgRecovery = rows.length > 0
     ? Math.round(rows.reduce((s, r) => s + r.recoveryPct, 0) / rows.length)
     : null;
+  const readyRows = rows.filter(r => r.recoveryPct >= 90);
+  const recoveringRows = rows.filter(r => r.recoveryPct >= 40 && r.recoveryPct < 90);
+  const fatiguedRows = rows.filter(r => r.recoveryPct < 40);
   const readyCount = rows.filter(r => r.recoveryPct >= 80).length;
   const fatiguedCount = rows.filter(r => r.recoveryPct < 50).length;
   const totalWeeklyVolume = rows.reduce((s, r) => s + r.weeklyVolume, 0);
@@ -134,11 +166,25 @@ export default function RecoveryPage() {
 
   const overallStatus = avgRecovery !== null ? overallStatusLabel(avgRecovery) : null;
 
+  const heatMapMuscles = rows.map(r => ({
+    muscle: r.segment,
+    intensity: Math.round((r.recoveryPct / 100) * 10),
+  }));
+
+  function getRemainingHours(r: MuscleRecoveryData): number {
+    if (!r.hoursElapsed) return 0;
+    const remaining = Math.max(0, r.estimatedFullRecoveryHours - r.hoursElapsed);
+    return Math.round(remaining);
+  }
+
   return (
     <main className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] pb-24 md:pb-10 relative">
 
       <div className="relative z-10 max-w-xl mx-auto px-4 pt-6 space-y-5">
-        <SwipeNav sections={getTrackSections(enabledKeys)} />
+        <button onClick={() => router.push("/track")} className="flex items-center gap-1 text-[var(--fg-40)] hover:text-[var(--fg-60)] transition">
+          <ChevronLeft size={18} />
+          <span className="text-xs font-mono">Track</span>
+        </button>
 
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -212,40 +258,90 @@ export default function RecoveryPage() {
               </div>
             </div>
 
-            {/* Recovery heat map */}
-            <div className="glass-card p-4">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-[9px] font-mono tracking-widest text-[var(--fg-20)]">READINESS MAP</p>
-                <div className="flex items-center gap-3 text-[8px] font-mono text-[var(--fg-25)]">
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400" />Ready</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-300" />Moderate</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400" />Fatigued</span>
+            {/* Schedule conflict warning (#27) */}
+            {tomorrowConflicts.length > 0 && (
+              <div className="glass-card p-4 border border-orange-400/20 bg-orange-400/5">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle size={16} className="text-orange-400 mt-0.5 shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-[var(--fg-80)]">
+                      Tomorrow's plan hits {tomorrowConflicts.join(", ")} which {tomorrowConflicts.length === 1 ? "is" : "are"} still fatigued
+                    </p>
+                    <p className="text-[10px] text-[var(--fg-30)] mt-1">Consider swapping to a different muscle group</p>
+                    <button
+                      onClick={() => router.push("/schedule")}
+                      className="flex items-center gap-1 mt-2 text-[10px] font-mono text-[var(--fg-40)] hover:text-[var(--fg-60)] transition"
+                    >
+                      View tomorrow's plan <ChevronLeft size={10} className="rotate-180" />
+                    </button>
+                  </div>
                 </div>
               </div>
+            )}
 
-              {/* Visual heat strip per muscle */}
-              <div className="space-y-1.5">
-                {rows.map((r) => (
-                  <div key={r.segment} className="flex items-center gap-2">
-                    <span className="text-[10px] font-mono text-[var(--fg-50)] w-20 text-right shrink-0">{r.segment}</span>
-                    <div className="flex-1 h-3 rounded-full bg-[var(--fg-04)] overflow-hidden">
-                      <motion.div
-                        initial={{ width: 0 }}
-                        animate={{ width: `${r.recoveryPct}%` }}
-                        transition={{ duration: 0.8, ease: "easeOut", delay: 0.1 }}
-                        className={`h-full rounded-full ${recoveryBarColor(r.recoveryPct)}`}
-                        style={{ opacity: 0.8 + (r.recoveryPct / 500) }}
-                      />
-                    </div>
-                    <span className="text-[10px] font-mono text-[var(--fg-40)] w-8 shrink-0">{r.recoveryPct}%</span>
-                  </div>
-                ))}
+            {/* "What can I train today?" card (#25) */}
+            <div className="glass-card p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Zap size={14} className="text-emerald-300" />
+                <span className="text-[9px] font-mono tracking-widest text-[var(--fg-25)]">READY TO TRAIN</span>
               </div>
+              <div className="space-y-1.5">
+                {readyRows.length > 0 && (
+                  <p className="text-sm text-emerald-300">
+                    {readyRows.map(r => r.segment).join(", ")} {readyRows.length === 1 ? "is" : "are"} good to go
+                  </p>
+                )}
+                {recoveringRows.length > 0 && (
+                  <p className="text-xs text-amber-300/80">
+                    {recoveringRows.slice(0, 3).map(r => `${r.segment} (~${getRemainingHours(r)}h)`).join(", ")} still recovering
+                  </p>
+                )}
+                {fatiguedRows.length > 0 && (
+                  <p className="text-xs text-red-400/70">
+                    {fatiguedRows.map(r => r.segment).join(", ")} — rest recommended
+                  </p>
+                )}
+                {readyRows.length === 0 && recoveringRows.length === 0 && fatiguedRows.length === 0 && (
+                  <p className="text-xs text-[var(--fg-30)]">Train to see recovery recommendations</p>
+                )}
+              </div>
+              <button
+                onClick={() => router.push("/schedule")}
+                className="flex items-center gap-1 mt-3 pt-2 border-t border-[var(--fg-04)] text-[10px] font-mono text-[var(--fg-30)] hover:text-[var(--fg-50)] transition w-full"
+              >
+                View schedule <ChevronLeft size={10} className="rotate-180 ml-auto" />
+              </button>
             </div>
 
-            {/* Per-muscle cards */}
-            <motion.div className="space-y-2.5" variants={staggerContainer} initial="hidden" animate="visible">
-              {rows.map((r) => {
+            {/* MuscleHeatMap visualization */}
+            {heatMapMuscles.length > 0 && (
+              <div className="glass-card p-4">
+                <p className="text-[9px] font-mono tracking-widest text-[var(--fg-20)] mb-3">RECOVERY BODY MAP</p>
+                <MuscleHeatMap
+                  muscles={heatMapMuscles}
+                  compact
+                  showToggle={false}
+                  showLegend
+                  height={160}
+                />
+              </div>
+            )}
+
+            {/* Per-muscle cards grouped by status (#26) */}
+            {[
+              { label: "Ready", rows: readyRows, color: "text-emerald-300", dotColor: "bg-emerald-400" },
+              { label: "Recovering", rows: recoveringRows, color: "text-amber-300", dotColor: "bg-amber-300" },
+              { label: "Fatigued", rows: fatiguedRows, color: "text-red-400", dotColor: "bg-red-400" },
+            ].filter(g => g.rows.length > 0).map(group => (
+              <div key={group.label}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={`w-2 h-2 rounded-full ${group.dotColor}`} />
+                  <span className={`text-[10px] font-mono tracking-widest ${group.color}`}>
+                    {group.label.toUpperCase()} ({group.rows.length})
+                  </span>
+                </div>
+                <motion.div className="space-y-2.5" variants={staggerContainer} initial="hidden" animate="visible">
+                  {group.rows.map((r) => {
                 const config = statusConfig(r.status);
                 const adaptive = adaptiveData[r.segment];
                 const weekSets = adaptive?.weeklyHistory.find(w => w.weekLabel === currentWeekStart)?.sets ?? r.weeklyVolume;
@@ -270,7 +366,7 @@ export default function RecoveryPage() {
                           </div>
                           <div>
                             <p className="text-sm font-bold text-[var(--fg-90)]">{r.segment}</p>
-                            <p className="text-[10px] font-mono text-[var(--fg-30)]">{timeAgo(r.hoursElapsed)} · {r.setsInSession} sets last session</p>
+                            <p className="text-[10px] font-mono text-[var(--fg-30)]">{timeAgo(r.hoursElapsed)} · {r.setsInSession} sets{r.recoveryPct < 90 ? ` · ~${getRemainingHours(r)}h to ready` : ""}</p>
                           </div>
                         </div>
                         <div className="text-right">
@@ -351,6 +447,8 @@ export default function RecoveryPage() {
                 );
               })}
             </motion.div>
+              </div>
+            ))}
 
             {/* Science footer */}
             <div className="rounded-xl border border-[var(--fg-04)] bg-[var(--fg-01)] p-3.5">

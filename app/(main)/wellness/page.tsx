@@ -1,19 +1,19 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { Droplets, Plus, Minus, Undo2, Flame, HeartPulse } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Droplets, Plus, Minus, Undo2, Flame, HeartPulse, ChevronLeft, Settings, TrendingUp, Zap } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/AuthProvider";
-import SwipeNav from "../../components/ui/swipe-nav";
-import { getTrackSections } from "../../lib/navPills";
 import { useModules } from "../../lib/useModules";
 import CubeLoader from "../../components/ui/cube-loader";
 import { staggerContainer, staggerItem } from "../../lib/motion";
 import OnboardingTooltip from "../../components/ui/onboarding-tooltip";
 import { autoCompleteHabits } from "../../lib/habitAutoComplete";
 
-const GOAL_ML = 3000;
+const DEFAULT_GOAL_ML = 3000;
+const GOAL_OPTIONS = [2000, 2500, 3000, 3500, 4000, 4500, 5000];
 const QUICK_AMOUNTS = [250, 500, 750, 1000];
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -30,7 +30,7 @@ type DayTotal = {
   metGoal: boolean;
 };
 
-function getDayTotals(logs: WaterLog[], days: number): DayTotal[] {
+function getDayTotals(logs: WaterLog[], days: number, goal: number): DayTotal[] {
   const result: DayTotal[] = [];
   const now = new Date();
   for (let i = days - 1; i >= 0; i--) {
@@ -43,7 +43,7 @@ function getDayTotals(logs: WaterLog[], days: number): DayTotal[] {
       date: dateStr,
       label: i === 0 ? "Today" : DAY_LABELS[d.getDay()],
       total,
-      metGoal: total >= GOAL_ML,
+      metGoal: total >= goal,
     });
   }
   return result;
@@ -59,6 +59,7 @@ function computeStreak(dayTotals: DayTotal[]): number {
 }
 
 export default function WellnessPage() {
+  const router = useRouter();
   const { user } = useAuth();
   const { enabledKeys } = useModules();
   const [todayLogs, setTodayLogs] = useState<WaterLog[]>([]);
@@ -66,6 +67,16 @@ export default function WellnessPage() {
   const [loading, setLoading] = useState(true);
   const [customAmount, setCustomAmount] = useState(250);
   const [animateSplash, setAnimateSplash] = useState(false);
+  const [showGoalPicker, setShowGoalPicker] = useState(false);
+  const [goalMl, setGoalMl] = useState(DEFAULT_GOAL_ML);
+  const [hydrationCorrelation, setHydrationCorrelation] = useState<{ betterPct: number; hydratedDays: number; totalDays: number } | null>(null);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("sevel_water_goal_ml");
+      if (saved) setGoalMl(parseInt(saved, 10));
+    } catch {}
+  }, []);
 
   const todayStart = useMemo(() => {
     const d = new Date();
@@ -91,18 +102,53 @@ export default function WellnessPage() {
     const all = data ?? [];
     setWeekLogs(all);
     setTodayLogs(all.filter((l) => l.logged_at >= todayStart));
+
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    thirtyDaysAgo.setHours(0, 0, 0, 0);
+    const [waterRes, sessionsRes] = await Promise.all([
+      supabase.from("water_logs").select("amount_ml, logged_at").eq("user_id", user.id).gte("logged_at", thirtyDaysAgo.toISOString()),
+      supabase.from("workout_sessions").select("completed_at, total_volume").eq("user_id", user.id).gte("completed_at", thirtyDaysAgo.toISOString()).not("total_volume", "is", null),
+    ]);
+    const waterData = waterRes.data ?? [];
+    const sessionData = sessionsRes.data ?? [];
+    if (sessionData.length >= 4) {
+      const savedGoal = (() => { try { const v = localStorage.getItem("sevel_water_goal_ml"); return v ? parseInt(v, 10) : DEFAULT_GOAL_ML; } catch { return DEFAULT_GOAL_ML; } })();
+      const dayWaterMap: Record<string, number> = {};
+      for (const w of waterData) {
+        const d = w.logged_at.slice(0, 10);
+        dayWaterMap[d] = (dayWaterMap[d] || 0) + w.amount_ml;
+      }
+      let hydratedVol: number[] = [];
+      let notHydratedVol: number[] = [];
+      for (const s of sessionData) {
+        const d = s.completed_at.slice(0, 10);
+        const water = dayWaterMap[d] || 0;
+        if (water >= savedGoal) hydratedVol.push(s.total_volume);
+        else notHydratedVol.push(s.total_volume);
+      }
+      if (hydratedVol.length >= 2 && notHydratedVol.length >= 2) {
+        const avgH = hydratedVol.reduce((a, b) => a + b, 0) / hydratedVol.length;
+        const avgN = notHydratedVol.reduce((a, b) => a + b, 0) / notHydratedVol.length;
+        if (avgN > 0) {
+          const betterPct = Math.round(((avgH - avgN) / avgN) * 100);
+          setHydrationCorrelation({ betterPct, hydratedDays: hydratedVol.length, totalDays: hydratedVol.length + notHydratedVol.length });
+        }
+      }
+    }
+
     setLoading(false);
   }, [user, weekStart, todayStart]);
 
   useEffect(() => { loadLogs(); }, [loadLogs]);
 
   const totalMl = todayLogs.reduce((sum, l) => sum + l.amount_ml, 0);
-  const pct = Math.min(100, Math.round((totalMl / GOAL_ML) * 100));
+  const pct = Math.min(100, Math.round((totalMl / goalMl) * 100));
   const glasses = Math.round(totalMl / 250);
 
-  const dayTotals = useMemo(() => getDayTotals(weekLogs, 7), [weekLogs]);
+  const dayTotals = useMemo(() => getDayTotals(weekLogs, 7, goalMl), [weekLogs, goalMl]);
   const streak = useMemo(() => computeStreak(dayTotals), [dayTotals]);
-  const maxDay = Math.max(GOAL_ML, ...dayTotals.map((d) => d.total));
+  const maxDay = Math.max(goalMl, ...dayTotals.map((d) => d.total));
   const weekAvg = Math.round(dayTotals.reduce((s, d) => s + d.total, 0) / 7);
   const daysMetGoal = dayTotals.filter((d) => d.metGoal).length;
 
@@ -120,7 +166,7 @@ export default function WellnessPage() {
       setTodayLogs(newLogs);
       setWeekLogs((prev) => [data, ...prev]);
       const newTotal = newLogs.reduce((s, l: any) => s + (l.amount_ml || 0), 0);
-      if (newTotal >= GOAL_ML && totalMl < GOAL_ML) {
+      if (newTotal >= goalMl && totalMl < goalMl) {
         autoCompleteHabits(user.id, "water_goal").catch(() => {});
       }
     }
@@ -139,7 +185,10 @@ export default function WellnessPage() {
   return (
     <main className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] pb-24 md:pb-10 relative">
       <div className="relative z-10 max-w-xl mx-auto px-4 pt-6 space-y-5">
-        <SwipeNav sections={getTrackSections(enabledKeys)} />
+        <button onClick={() => router.push("/track")} className="flex items-center gap-1 text-[var(--fg-40)] hover:text-[var(--fg-60)] transition">
+          <ChevronLeft size={18} />
+          <span className="text-xs font-mono">Track</span>
+        </button>
 
         <div className="flex items-center justify-between">
           <div>
@@ -150,7 +199,9 @@ export default function WellnessPage() {
             <p className="text-2xl font-bold font-mono text-[var(--fg-90)]">
               {(totalMl / 1000).toFixed(1)}<span className="text-sm text-[var(--fg-30)]">L</span>
             </p>
-            <p className="text-[9px] font-mono text-[var(--fg-30)]">of {GOAL_ML / 1000}L goal</p>
+            <button onClick={() => setShowGoalPicker(p => !p)} className="flex items-center gap-1 text-[9px] font-mono text-[var(--fg-30)] hover:text-[var(--fg-50)] transition">
+              of {goalMl / 1000}L goal <Settings size={10} />
+            </button>
           </div>
         </div>
 
@@ -306,13 +357,66 @@ export default function WellnessPage() {
               </div>
             </div>
 
+            {/* Goal picker (#28) */}
+            <AnimatePresence>
+              {showGoalPicker && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="rounded-xl border border-[var(--fg-06)] bg-[var(--fg-02)] p-4">
+                    <p className="text-[9px] font-mono tracking-widest text-[var(--fg-25)] mb-3">DAILY WATER GOAL</p>
+                    <div className="flex flex-wrap gap-2">
+                      {GOAL_OPTIONS.map(ml => (
+                        <button
+                          key={ml}
+                          onClick={() => {
+                            setGoalMl(ml);
+                            try { localStorage.setItem("sevel_water_goal_ml", String(ml)); } catch {}
+                            setShowGoalPicker(false);
+                          }}
+                          className={`px-3 py-2 rounded-lg text-xs font-mono transition ${
+                            ml === goalMl
+                              ? "bg-blue-500/20 border border-blue-400/30 text-blue-300"
+                              : "border border-[var(--fg-06)] text-[var(--fg-50)] hover:bg-[var(--fg-04)]"
+                          }`}
+                        >
+                          {ml / 1000}L
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Hydration-performance correlation (#29) */}
+            {hydrationCorrelation && hydrationCorrelation.betterPct !== 0 && (
+              <div className="rounded-xl border border-blue-500/10 bg-blue-500/[0.03] p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Zap size={14} className="text-blue-400/70" />
+                  <p className="text-[9px] font-mono tracking-widest text-blue-400/40">HYDRATION × PERFORMANCE</p>
+                </div>
+                <p className="text-sm text-[var(--fg-70)]">
+                  {hydrationCorrelation.betterPct > 0
+                    ? `You perform ${hydrationCorrelation.betterPct}% better on days you hit your water goal`
+                    : `Your workout volume is consistent regardless of hydration — keep it up!`}
+                </p>
+                <p className="text-[10px] text-[var(--fg-25)] mt-1">
+                  Based on {hydrationCorrelation.totalDays} sessions over the last 30 days ({hydrationCorrelation.hydratedDays} on hydrated days)
+                </p>
+              </div>
+            )}
+
             {/* 7-Day Chart */}
             <div className="rounded-xl border border-[var(--fg-06)] bg-[var(--fg-02)] p-4">
               <p className="text-[9px] font-mono tracking-widest text-[var(--fg-25)] mb-3">LAST 7 DAYS</p>
               <div className="flex items-end gap-1.5 h-28">
                 {dayTotals.map((day) => {
                   const barPct = maxDay > 0 ? (day.total / maxDay) * 100 : 0;
-                  const goalLine = (GOAL_ML / maxDay) * 100;
+                  const goalLine = (goalMl / maxDay) * 100;
                   return (
                     <div key={day.date} className="flex-1 flex flex-col items-center gap-1 h-full relative">
                       <div className="flex-1 w-full flex items-end relative">
@@ -341,7 +445,7 @@ export default function WellnessPage() {
                 })}
               </div>
               <div className="flex items-center justify-between mt-2">
-                <span className="text-[8px] font-mono text-[var(--fg-15)]">--- {GOAL_ML / 1000}L goal</span>
+                <span className="text-[8px] font-mono text-[var(--fg-15)]">--- {goalMl / 1000}L goal</span>
                 <span className="text-[8px] font-mono text-[var(--fg-15)]">
                   Best: {(Math.max(...dayTotals.map((d) => d.total)) / 1000).toFixed(1)}L
                 </span>
@@ -374,7 +478,7 @@ export default function WellnessPage() {
                       }}
                     />
                   </div>
-                  <span className="text-[8px] font-mono text-[var(--fg-20)]">{GOAL_ML - totalMl}ml to go</span>
+                  <span className="text-[8px] font-mono text-[var(--fg-20)]">{goalMl - totalMl}ml to go</span>
                 </div>
               )}
             </div>

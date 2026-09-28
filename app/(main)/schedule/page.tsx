@@ -1812,7 +1812,7 @@ export default function SchedulePage() {
                                 <Scroll size={11} /> View Full Scroll
                             </button>
                             <div className="w-px bg-[var(--fg-06)]" />
-                            <button onClick={() => router.push("/progress")} className="flex-1 flex items-center justify-center gap-1.5 text-[10px] font-mono text-[var(--fg-35)] hover:text-[var(--fg-60)] py-2.5 transition">
+                            <button onClick={() => router.push("/track")} className="flex-1 flex items-center justify-center gap-1.5 text-[10px] font-mono text-[var(--fg-35)] hover:text-[var(--fg-60)] py-2.5 transition">
                                 <TrendingUp size={11} /> Progress
                             </button>
                             {w.todaySessions.length < w.MAX_SESSIONS_PER_DAY && (
@@ -1850,7 +1850,7 @@ export default function SchedulePage() {
                             muscles={hitMuscles}
                             onShare={w.handleShare}
                             onSchedule={() => setEditorWeekday(todayWd)}
-                            onProgress={() => router.push("/progress")}
+                            onProgress={() => router.push("/track")}
                             onStartAnother={w.startAnotherWorkout}
                         />
                         {/* MA session summary below gym receipt when expanded */}

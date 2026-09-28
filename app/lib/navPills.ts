@@ -28,7 +28,10 @@ const trainPillsDef: ConditionalPill[] = [
 
 const trackPillsDef: ConditionalPill[] = [
   { key: "/progress", label: "PROGRESS", icon: TrendingUp, colorRgb: "16 185 129", description: "Body weight trends, strength charts, PRs" },
-  { key: "/body", label: "BODY", icon: Ruler, colorRgb: "16 185 129", description: "Tap-on-body measurement tracking with trends" },
+  { key: "/progress/history", label: "HISTORY", icon: Calendar, colorRgb: "16 185 129", description: "Session history with calendar and volume charts" },
+  { key: "/progress/strength", label: "STRENGTH", icon: Dumbbell, colorRgb: "16 185 129", description: "PR wall, strength benchmarks, 1RM projections" },
+  { key: "/progress/weight", label: "WEIGHT", icon: Ruler, colorRgb: "16 185 129", description: "Weight tracking, measurements, goals" },
+  { key: "/progress/intake", label: "INTAKE", icon: Flame, colorRgb: "16 185 129", description: "Calorie and macro tracking, adaptive TDEE" },
   { key: "/recovery", label: "RECOVERY", icon: HeartPulse, module: "recovery", colorRgb: "16 185 129", description: "Per-muscle readiness and volume analysis" },
   { key: "/nutrition", label: "NUTRITION", icon: UtensilsCrossed, module: "nutrition", colorRgb: "245 158 11", description: "Calorie tracking, macros, adaptive TDEE", comingSoon: true },
   { key: "/cycle", label: "CYCLE", icon: Droplets, module: "cycle", colorRgb: "236 72 153", description: "Period tracking, phase insights, training sync" },
