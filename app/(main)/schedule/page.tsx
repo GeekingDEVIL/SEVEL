@@ -3577,37 +3577,34 @@ export default function SchedulePage() {
                 const nextEx = nextUncompleted ?? null;
                 const nextSet = nextEx ? (w.logs[nextEx.id] ?? []).find(s => !s.completed) : null;
                 return (
-                <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center" style={{ backgroundColor: "var(--bg-primary)" }}>
-                    <div className="absolute inset-0" style={{ backgroundColor: "var(--bg-primary)" }} />
-                    <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgb(var(--accent-rgb)/0.06),transparent_70%)]" />
-                    <div className="relative flex flex-col items-center gap-6">
-                        <p className="text-[9px] font-mono tracking-[0.2em] text-[var(--fg-25)]">REST</p>
-                        <div className="relative">
-                            <svg width="164" height="164" className="-rotate-90">
-                                <circle cx="82" cy="82" r={rR} fill="none" stroke="rgb(var(--fg-rgb) / 0.06)" strokeWidth="4" />
-                                <circle cx="82" cy="82" r={rR} fill="none" stroke="rgb(var(--accent-rgb))" strokeWidth="4" strokeLinecap="round" strokeDasharray={rC} strokeDashoffset={rC * (1 - restPct)} className="transition-all duration-1000 ease-linear" />
-                            </svg>
-                            <div className="absolute inset-0 flex flex-col items-center justify-center">
-                                <span className="text-5xl font-bold font-mono text-[var(--fg-90)] tabular-nums">{formatClock(w.restRemaining)}</span>
+                <div className="fixed bottom-[72px] md:bottom-4 left-0 right-0 z-[60] flex justify-center px-4 animate-[fadeInUp_0.2s_ease]">
+                    <div className="w-full max-w-lg rounded-2xl border border-[var(--fg-08)] px-5 py-4" style={{ backgroundColor: "var(--bg-card)", backdropFilter: "blur(20px)", boxShadow: "0 -4px 30px rgb(0 0 0 / 0.3)" }}>
+                        <div className="flex items-center gap-4">
+                            <div className="relative shrink-0">
+                                <svg width="56" height="56" className="-rotate-90">
+                                    <circle cx="28" cy="28" r={rR * 0.35} fill="none" stroke="rgb(var(--fg-rgb) / 0.06)" strokeWidth="3" />
+                                    <circle cx="28" cy="28" r={rR * 0.35} fill="none" stroke="rgb(var(--accent-rgb))" strokeWidth="3" strokeLinecap="round" strokeDasharray={2 * Math.PI * rR * 0.35} strokeDashoffset={2 * Math.PI * rR * 0.35 * (1 - restPct)} className="transition-all duration-1000 ease-linear" />
+                                </svg>
+                                <div className="absolute inset-0 flex items-center justify-center">
+                                    <span className="text-base font-bold font-mono text-[var(--fg-90)] tabular-nums">{formatClock(w.restRemaining)}</span>
+                                </div>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-[9px] font-mono tracking-[0.15em] text-[var(--fg-25)]">REST</p>
+                                {nextEx && nextSet && (
+                                    <p className="text-[11px] font-mono text-[var(--fg-50)] mt-0.5 truncate">
+                                        Next: {nextEx.name} · {nextSet.weight || "—"}{w.weightUnit} × {nextSet.reps || "—"}
+                                    </p>
+                                )}
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                                <button onClick={() => w.addRestTime(15)} className="text-[10px] font-mono px-2.5 py-1.5 rounded-lg border border-[var(--fg-08)] text-[var(--fg-30)] hover:text-[var(--fg-60)] active:scale-95 transition">+15s</button>
+                                <button onClick={() => w.setRestPaused((p: boolean) => !p)} className="w-9 h-9 flex items-center justify-center rounded-full border border-[var(--fg-10)] text-[var(--fg-40)] hover:text-[var(--fg-70)] active:scale-95 transition">
+                                    {w.restPaused ? <Play size={14} /> : <Pause size={14} />}
+                                </button>
+                                <button onClick={w.dismissRestTimer} className="text-[10px] font-mono px-2.5 py-1.5 rounded-lg border border-[var(--fg-08)] text-[var(--fg-30)] hover:text-[var(--fg-60)] active:scale-95 transition">Skip</button>
                             </div>
                         </div>
-                        <div className="flex items-center gap-3">
-                            <button onClick={() => w.addRestTime(15)} className="text-[11px] font-mono font-medium px-4 py-2.5 rounded-xl border border-[var(--fg-08)] text-[var(--fg-40)] hover:text-[var(--fg-70)] active:scale-95 transition">+15s</button>
-                            <button onClick={() => w.setRestPaused((p: boolean) => !p)} className="w-12 h-12 flex items-center justify-center rounded-full border border-[var(--fg-10)] text-[var(--fg-50)] hover:text-[var(--fg-80)] active:scale-95 transition">
-                                {w.restPaused ? <Play size={20} /> : <Pause size={20} />}
-                            </button>
-                            <button onClick={w.dismissRestTimer} className="text-[11px] font-mono font-medium px-4 py-2.5 rounded-xl border border-[var(--fg-08)] text-[var(--fg-40)] hover:text-[var(--fg-70)] active:scale-95 transition">Skip</button>
-                        </div>
-                        {nextEx && nextSet && (
-                            <div className="mt-4 rounded-xl border border-[var(--fg-06)] bg-[var(--fg-03)] px-5 py-3 text-center min-w-[200px]">
-                                <p className="text-[8px] font-mono tracking-widest text-[var(--fg-20)] mb-1">NEXT UP</p>
-                                <p className="text-[13px] font-medium text-[var(--fg-60)]">{nextEx.name}</p>
-                                <p className="text-[10px] font-mono text-[var(--fg-30)] mt-0.5">
-                                    Set {(nextSet as SetEntry).index + 1} · {nextSet.weight || "—"}{w.weightUnit} × {nextSet.reps || "—"}
-                                </p>
-                            </div>
-                        )}
-                        <p className="text-[9px] font-mono text-[var(--fg-15)] mt-2">{w.completedCount}/{w.totalPlanned} sets done</p>
                     </div>
                 </div>
                 );

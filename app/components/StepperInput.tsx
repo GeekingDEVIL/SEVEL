@@ -90,7 +90,10 @@ export default function StepperInput({
     const finishEdit = () => {
         setEditing(false);
         const parsed = parseFloat(editText);
-        if (!isNaN(parsed)) onChange(snap(parsed));
+        if (!isNaN(parsed)) {
+            const clamped = Math.round(Math.max(min, Math.min(max, parsed)) * 100) / 100;
+            onChange(clamped);
+        }
     };
 
     const displayValue = value > 0 ? (Number.isInteger(value) ? String(value) : value.toFixed(1)) : "";
@@ -146,6 +149,7 @@ export default function StepperInput({
 
             <button
                 onClick={startEdit}
+                onDoubleClick={startEdit}
                 className="flex-1 h-full flex flex-col items-center justify-center min-w-0"
             >
                 <span className={`text-lg font-bold font-mono leading-none ${displayValue ? "text-[var(--fg-85)]" : "text-[var(--fg-25)]"}`}>
