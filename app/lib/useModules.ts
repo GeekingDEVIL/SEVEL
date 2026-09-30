@@ -137,7 +137,7 @@ export function useModules() {
       } else {
         await supabase
           .from("user_modules")
-          .upsert({ user_id: user.id, module_key: key });
+          .insert({ user_id: user.id, module_key: key });
       }
     },
     [user, optionalKeys, coreKeys],

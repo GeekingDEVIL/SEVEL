@@ -130,7 +130,7 @@ export const MODULE_REGISTRY: Record<ModuleKey, ModuleDef> = {
     colorRgb: "239 68 68",
     domain: "train",
     core: false,
-    phase: 3,
+    phase: 0,
   },
   yoga: {
     key: "yoga",
@@ -289,5 +289,5 @@ export const CORE_MODULES = ALL_MODULES.filter((m) => m.core);
 export const OPTIONAL_MODULES = ALL_MODULES.filter((m) => !m.core);
 
 export const DEFAULT_ENABLED: ModuleKey[] = [
-  "gym", "progress", "xp", "recovery", "wellness", "habits", "social",
+  "gym", "progress", "xp", "recovery", "wellness", "habits", "social", "martial_arts",
 ];
