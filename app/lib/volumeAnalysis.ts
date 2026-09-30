@@ -55,11 +55,11 @@ export function getVolumeStatus(
   const source: "personal" | "general" = usePersonal ? "personal" : "general";
   const trend = adaptive?.trend;
 
-  if (sets === 0) return { label: "NONE", color: "text-white/30", tip: `No direct ${segment.toLowerCase()} work planned.`, source, trend };
-  if (sets < min) return { label: "LOW", color: "text-amber-300", tip: `Below ${source === "personal" ? "your observed" : "recommended"} minimum (${min} sets). Consider adding ${min - sets}+ sets.`, source, trend };
-  if (sets <= max) return { label: "OPTIMAL", color: "text-cyan-300", tip: null, source, trend };
-  if (sets <= max + 4) return { label: "HIGH", color: "text-orange-300", tip: `Above ${source === "personal" ? "your observed" : "recommended"} max (${max} sets). ${adaptive?.suggestion || "Monitor recovery."}`, source, trend };
-  return { label: "EXCESSIVE", color: "text-red-400", tip: `Well above ${source === "personal" ? "your" : ""} maximum recoverable volume (${max} sets). ${adaptive?.suggestion || "Strongly consider reducing."}`, source, trend };
+  if (sets === 0) return { label: "NONE", color: "var(--fg-30)", tip: `No direct ${segment.toLowerCase()} work planned.`, source, trend };
+  if (sets < min) return { label: "LOW", color: "rgb(var(--status-recovering-rgb))", tip: `Below ${source === "personal" ? "your observed" : "recommended"} minimum (${min} sets). Consider adding ${min - sets}+ sets.`, source, trend };
+  if (sets <= max) return { label: "OPTIMAL", color: "rgb(var(--status-ready-rgb))", tip: null, source, trend };
+  if (sets <= max + 4) return { label: "HIGH", color: "rgb(var(--status-fatigued-rgb))", tip: `Above ${source === "personal" ? "your observed" : "recommended"} max (${max} sets). ${adaptive?.suggestion || "Monitor recovery."}`, source, trend };
+  return { label: "EXCESSIVE", color: "rgb(var(--status-danger-rgb))", tip: `Well above ${source === "personal" ? "your" : ""} maximum recoverable volume (${max} sets). ${adaptive?.suggestion || "Strongly consider reducing."}`, source, trend };
 }
 
 export type AdaptiveVolumeData = {

@@ -20,7 +20,7 @@ import {
   MILESTONES, EVOLUTION_STYLES, getEvolutionTier, isHabitScheduledForDay, getScheduleLabel,
   calculateMomentum, calculateStreak, getComboMultiplier, getPerfectWeekMultiplier, countPerfectWeeks,
   getDailyQuests, rollLootDrop, getReviveCost, getPrestigeMultiplier, canPrestige,
-  generateConstellation, getAuraLevel, AURA_STYLES, generateInsights, generateCorrelationInsights,
+  getAuraLevel, AURA_STYLES, generateInsights, generateCorrelationInsights,
   generateMilestoneCard, generateMonthlyCard,
 } from "../../lib/habitEngine";
 import { shareCardImage } from "../../lib/shareCard";
@@ -430,163 +430,6 @@ function MonthCalendar({ habits, completionSet, skipSet, username }: { habits: H
   );
 }
 
-// ─── Constellation sky ──────────────────────────────────────────────────────
-
-function ConstellationSky({ habits, completionSet }: { habits: Habit[]; completionSet: Set<string> }) {
-  const stars = useMemo(() => generateConstellation(habits, completionSet), [habits, completionSet]);
-  const [hoveredStar, setHoveredStar] = useState<number | null>(null);
-  if (stars.length === 0) return null;
-
-  const totalBrightness = stars.reduce((s, st) => s + st.brightness, 0);
-  const avgBrightness = totalBrightness / stars.length;
-  const connCount = stars.reduce((s, st) => s + st.connections.length, 0);
-
-  return (
-    <div className="rounded-2xl border border-indigo-500/[0.08] overflow-hidden" style={{ background: "linear-gradient(180deg, var(--bg-sunken) 0%, var(--bg-card) 50%, var(--bg-primary) 100%)" }}>
-      {/* Header */}
-      <div className="px-4 pt-4 pb-2 flex items-center justify-between">
-        <div>
-          <p className="text-[9px] font-mono tracking-widest text-indigo-300/30">YOUR CONSTELLATION</p>
-          <p className="text-[10px] text-[var(--fg-20)] mt-0.5">{stars.length} star{stars.length !== 1 ? "s" : ""} · {connCount} link{connCount !== 1 ? "s" : ""}</p>
-        </div>
-        <div className="text-right">
-          <p className="text-[9px] font-mono text-indigo-300/25">Luminosity</p>
-          <p className="text-sm font-bold font-mono text-indigo-300/60">{Math.round(avgBrightness * 100)}%</p>
-        </div>
-      </div>
-
-      {/* Sky */}
-      <div className="relative w-full" style={{ paddingBottom: "65%" }}>
-        {/* Nebula glow behind bright clusters */}
-        <div className="absolute inset-0 pointer-events-none">
-          {stars.filter((s) => s.brightness > 0.7).map((star, i) => (
-            <div key={`neb-${i}`} className="absolute rounded-full"
-              style={{
-                left: `${star.x * 100}%`, top: `${star.y * 100}%`,
-                width: 60, height: 60, transform: "translate(-50%, -50%)",
-                background: `radial-gradient(circle, rgb(${star.color} / 0.06) 0%, transparent 70%)`,
-              }} />
-          ))}
-        </div>
-
-        <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 65">
-          <defs>
-            {/* Glow filter */}
-            <filter id="star-glow">
-              <feGaussianBlur stdDeviation="0.8" result="blur" />
-              <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-            </filter>
-            {stars.map((star, i) => (
-              <radialGradient key={`sg-${i}`} id={`star-g-${i}`}>
-                <stop offset="0%" stopColor={`rgb(${star.color})`} stopOpacity="1" />
-                <stop offset="100%" stopColor={`rgb(${star.color})`} stopOpacity="0" />
-              </radialGradient>
-            ))}
-          </defs>
-
-          {/* Background star field — multiple layers */}
-          {Array.from({ length: 60 }, (_, i) => {
-            const sx = ((i * 37 + 13) % 100);
-            const sy = ((i * 23 + 7) % 65);
-            const size = (i % 3 === 0) ? 0.4 : 0.2;
-            const opacity = 0.08 + (i % 5) * 0.04;
-            return <circle key={`bg-${i}`} cx={sx} cy={sy} r={size} fill={`rgb(var(--fg-rgb) / ${opacity})`} />;
-          })}
-
-          {/* Connection lines with gradient */}
-          {stars.map((star, i) =>
-            star.connections.map((j) => (
-              <motion.line
-                key={`${i}-${j}`}
-                x1={star.x * 100} y1={star.y * 65}
-                x2={stars[j].x * 100} y2={stars[j].y * 65}
-                stroke={`rgb(${star.color} / ${hoveredStar === i || hoveredStar === j ? 0.5 : 0.15})`}
-                strokeWidth={hoveredStar === i || hoveredStar === j ? 0.5 : 0.25}
-                strokeDasharray={hoveredStar === i || hoveredStar === j ? "none" : "1 1"}
-                initial={{ pathLength: 0 }}
-                animate={{ pathLength: 1 }}
-                transition={{ duration: 1.5, delay: i * 0.15, ease: "easeOut" }}
-                style={{ transition: "stroke 0.3s, stroke-width 0.3s" }}
-              />
-            ))
-          )}
-
-          {/* Stars with multi-layer rendering */}
-          {stars.map((star, i) => {
-            const isHovered = hoveredStar === i;
-            const baseR = 1 + star.brightness * 2;
-            const cx = star.x * 100;
-            const cy = star.y * 65;
-            return (
-              <g key={i}
-                onMouseEnter={() => setHoveredStar(i)}
-                onMouseLeave={() => setHoveredStar(null)}
-                style={{ cursor: "pointer" }}>
-                {/* Outer glow */}
-                <circle cx={cx} cy={cy} r={baseR * 4} fill={`url(#star-g-${i})`} opacity={star.brightness * 0.15} />
-                {/* Diffraction spikes for bright stars */}
-                {star.brightness > 0.6 && (
-                  <>
-                    <line x1={cx - baseR * 2.5} y1={cy} x2={cx + baseR * 2.5} y2={cy}
-                      stroke={`rgb(${star.color} / 0.2)`} strokeWidth="0.15" />
-                    <line x1={cx} y1={cy - baseR * 2.5} x2={cx} y2={cy + baseR * 2.5}
-                      stroke={`rgb(${star.color} / 0.2)`} strokeWidth="0.15" />
-                  </>
-                )}
-                {/* Core */}
-                <motion.circle cx={cx} cy={cy} r={isHovered ? baseR * 1.5 : baseR}
-                  fill={`rgb(${star.color})`} filter="url(#star-glow)"
-                  opacity={star.brightness}
-                  animate={{ opacity: [star.brightness * 0.75, star.brightness, star.brightness * 0.75] }}
-                  transition={{ duration: 2.5 + i * 0.4, repeat: Infinity, ease: "easeInOut" }}
-                />
-                {/* White center for bright stars */}
-                {star.brightness > 0.5 && (
-                  <circle cx={cx} cy={cy} r={baseR * 0.3} fill="white" opacity={star.brightness * 0.7} />
-                )}
-              </g>
-            );
-          })}
-        </svg>
-
-        {/* Hovered star tooltip */}
-        <AnimatePresence>
-          {hoveredStar !== null && stars[hoveredStar] && (
-            <motion.div
-              className="absolute z-10 px-2.5 py-1.5 rounded-lg border border-[var(--fg-10)] backdrop-blur-xl"
-              style={{
-                left: `${stars[hoveredStar].x * 100}%`,
-                top: `${stars[hoveredStar].y * 100 - 12}%`,
-                transform: "translate(-50%, -100%)",
-                background: `linear-gradient(135deg, rgb(${stars[hoveredStar].color} / 0.15), rgb(${stars[hoveredStar].color} / 0.05))`,
-              }}
-              initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-              <p className="text-[10px] font-bold text-[var(--fg-80)]">{stars[hoveredStar].habitName}</p>
-              <p className="text-[8px] font-mono text-[var(--fg-30)]">{Math.round(stars[hoveredStar].brightness * 100)}% brightness</p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      {/* Legend */}
-      <div className="px-4 pb-3 pt-1 flex flex-wrap gap-x-4 gap-y-1">
-        {stars.map((star, i) => (
-          <div key={i} className="flex items-center gap-1.5"
-            onMouseEnter={() => setHoveredStar(i)} onMouseLeave={() => setHoveredStar(null)}>
-            <div className="w-1.5 h-1.5 rounded-full" style={{
-              background: `rgb(${star.color})`,
-              boxShadow: `0 0 4px rgb(${star.color} / 0.4)`,
-            }} />
-            <span className={`text-[9px] font-mono transition ${hoveredStar === i ? "text-[var(--fg-60)]" : "text-[var(--fg-20)]"}`}>
-              {star.habitName}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ─── Loot drop toast ────────────────────────────────────────────────────────
 
 function LootDropToast({ drop, onClose }: { drop: LootDrop; onClose: () => void }) {
@@ -671,7 +514,7 @@ export default function HabitsPage() {
   const [loading, setLoading] = useState(true);
 
   // UI state
-  const [view, setView] = useState<"today" | "calendar" | "constellation">("today");
+  const [view, setView] = useState<"today" | "calendar">("today");
   const [showAdd, setShowAdd] = useState(false);
   const [detailHabit, setDetailHabit] = useState<Habit | null>(null);
   const [editHabit, setEditHabit] = useState<Habit | null>(null);
@@ -1054,12 +897,12 @@ export default function HabitsPage() {
             {/* View tabs */}
             {habits.length > 0 && (
               <div className="flex gap-1 bg-[var(--fg-03)] rounded-lg p-0.5">
-                {(["today", "calendar", "constellation"] as const).map((v) => (
+                {(["today", "calendar"] as const).map((v) => (
                   <button key={v} onClick={() => setView(v)}
                     className={`flex-1 py-1.5 rounded-md text-[10px] font-mono transition ${
                       view === v ? "bg-[var(--fg-08)] text-[var(--fg-80)]" : "text-[var(--fg-30)] hover:text-[var(--fg-50)]"
                     }`}>
-                    {v === "today" ? "Today" : v === "calendar" ? "Calendar" : "Stars"}
+                    {v === "today" ? "Today" : "Calendar"}
                   </button>
                 ))}
               </div>
@@ -1273,8 +1116,6 @@ export default function HabitsPage() {
             {view === "calendar" && <MonthCalendar habits={habits} completionSet={completionSet} skipSet={skipSet} username={profile?.username} />}
 
             {/* Constellation view */}
-            {view === "constellation" && <ConstellationSky habits={habits} completionSet={completionSet} />}
-
             {/* Weekly Review Card (#30) */}
             {view === "today" && weeklyReview && (
               <div className="rounded-xl border border-[var(--fg-06)] bg-[var(--fg-02)] overflow-hidden">
@@ -1538,7 +1379,6 @@ export default function HabitsPage() {
                     { icon: "⏭️", title: "Skip, don't break", body: "Sick or traveling? Skip with a reason and your momentum stays protected." },
                     { icon: "🎮", title: "Earn rewards", body: "Complete habits to earn XP, loot drops (streak freezes, double XP), and hit milestones at 7, 14, 30, 60, and 100 days." },
                     { icon: "⭐", title: "Level up", body: "Your habits evolve visually as streaks grow. Daily quests give bonus XP. Perfect weeks earn multipliers." },
-                    { icon: "🌌", title: "Build your sky", body: "Each habit becomes a star in your constellation. The brighter and more connected, the more consistent you are." },
                   ].map((item) => (
                     <div key={item.title} className="flex gap-2.5">
                       <span className="text-sm shrink-0 mt-0.5">{item.icon}</span>

@@ -65,6 +65,14 @@ html, body { overflow-x: hidden; max-width: 100vw; }
   --domain-social-rgb: 59 130 246;
   --domain-ai-rgb: 20 184 166;
 
+  /* ═══ Semantic Status Colors (RGB triplets) ═══ */
+  --status-recovered-rgb: 110 231 183;
+  --status-ready-rgb: 103 232 249;
+  --status-recovering-rgb: 252 211 77;
+  --status-fatigued-rgb: 251 146 60;
+  --status-danger-rgb: 248 113 113;
+  --status-cycle-rgb: 244 114 182;
+
   /* ═══ Foreground Alpha Steps (dark base — white on dark) ═══ */
   --fg-01: rgb(255 255 255 / 0.01);
   --fg-02: rgb(255 255 255 / 0.02);
@@ -173,6 +181,13 @@ html, body { overflow-x: hidden; max-width: 100vw; }
 
   --accent-rgb: 14 165 190;
   --accent-light-rgb: 14 165 190;
+
+  --status-recovered-rgb: 5 150 105;
+  --status-ready-rgb: 8 145 178;
+  --status-recovering-rgb: 217 119 6;
+  --status-fatigued-rgb: 234 88 12;
+  --status-danger-rgb: 220 38 38;
+  --status-cycle-rgb: 219 39 119;
 
   /* ═══ Daylight alpha-boost steps (dark-on-light needs ~2x alpha for equal contrast) ═══ */
   --fg-01: rgb(28 25 23 / 0.02);

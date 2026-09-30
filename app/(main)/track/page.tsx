@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronRight,
@@ -15,6 +15,8 @@ import {
   Zap,
   Activity,
   Target,
+  Plus,
+  Check,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import MuscleHeatMap from "../../components/MuscleHeatMap";
@@ -30,7 +32,9 @@ import { useAuth } from "../../lib/AuthProvider";
 import { useSex } from "../../lib/useSex";
 import { useModules } from "../../lib/useModules";
 import { useUnits } from "../../lib/useUnits";
-import { formatWeight } from "../../lib/units";
+import { formatWeight, weightInputToKg } from "../../lib/units";
+import { rematerializeWeightTrend } from "../../lib/weightTrend";
+import { rematerializeDailyIntake, type MealSlot } from "../../lib/intakeLog";
 import { supabase } from "../../lib/supabase";
 import { staggerContainer, staggerItem } from "../../lib/motion";
 
@@ -92,6 +96,8 @@ type HubData = {
   weightSparkline: number[];
   strengthSparkline: number[];
   latestPrDaysAgo: number | null;
+  mealSuggestions: { label: string; kcal: number; protein: number; carbs: number; fat: number; count: number }[];
+  mealSizeEstimates: { light: number; regular: number; heavy: number };
 };
 
 const SEGMENT_MAP: Record<string, string> = {
@@ -244,9 +250,9 @@ function MoreModulesRow({
   router: ReturnType<typeof useRouter>;
 }) {
   const modules = [
-    { key: "recovery", label: "Recovery", icon: <Activity size={16} />, route: "/recovery" },
-    { key: "habits", label: "Habits", icon: <Target size={16} />, route: "/habits" },
-    { key: "wellness", label: "Hydration", icon: <Droplet size={16} />, route: "/wellness" },
+    { key: "recovery", label: "Recovery", icon: <HeartPulse size={18} />, route: "/recovery", rgb: "16 185 129" },
+    { key: "habits", label: "Habits", icon: <Flame size={18} />, route: "/habits", rgb: "244 63 94" },
+    { key: "wellness", label: "Wellness", icon: <Droplet size={18} />, route: "/wellness", rgb: "16 185 129" },
   ].filter((m) => enabledKeys.includes(m.key));
 
   if (modules.length === 0) return null;
@@ -254,16 +260,20 @@ function MoreModulesRow({
   return (
     <motion.div variants={staggerItem}>
       <span className="text-[11px] font-mono tracking-[0.2em] text-[var(--fg-30)] mb-3 block">MORE</span>
-      <div className="flex gap-2.5 overflow-x-auto no-scrollbar pb-1">
+      <div className="flex justify-around py-1">
         {modules.map((m) => (
           <button
             key={m.key}
-            className="glass-card px-5 py-3 flex items-center gap-2.5 shrink-0 hover:bg-[var(--fg-04)] transition active:scale-95"
+            className="flex flex-col items-center gap-1.5 active:scale-95 transition"
             onClick={() => router.push(m.route)}
           >
-            <span className="text-[var(--fg-35)]">{m.icon}</span>
-            <span className="text-sm font-medium text-[var(--fg-50)]">{m.label}</span>
-            <ChevronRight size={14} className="text-[var(--fg-15)]" />
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center"
+              style={{ background: `rgb(${m.rgb} / 0.10)`, color: `rgb(${m.rgb})` }}
+            >
+              {m.icon}
+            </div>
+            <span className="text-[10px] font-medium text-[var(--fg-40)]">{m.label}</span>
           </button>
         ))}
       </div>
@@ -283,6 +293,12 @@ export default function TrackHub() {
   const [hub, setHub] = useState<HubData | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [waterToast, setWaterToast] = useState(false);
+  const [weightInput, setWeightInput] = useState("");
+  const [weightOpen, setWeightOpen] = useState(false);
+  const [weightLogging, setWeightLogging] = useState(false);
+  const weightInputRef = useRef<HTMLInputElement>(null);
+  const [mealOpen, setMealOpen] = useState(false);
+  const [mealLogging, setMealLogging] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -599,6 +615,61 @@ export default function TrackHub() {
         });
       }
 
+      // Meal suggestions: fetch recent food_entries for current meal slot
+      const hour = now.getHours();
+      const currentSlot = hour < 11 ? "breakfast" : hour < 15 ? "lunch" : hour < 20 ? "dinner" : "snack";
+      const twoWeeksAgo = new Date(now);
+      twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+      const twoWeeksAgoStr = toDateString(twoWeeksAgo);
+
+      const { data: recentMeals } = await supabase
+        .from("food_entries")
+        .select("label, kcal, protein_g, carbs_g, fat_g, meal_slot")
+        .eq("user_id", user.id)
+        .eq("sex", userSex)
+        .eq("meal_slot", currentSlot)
+        .gte("date", twoWeeksAgoStr)
+        .not("label", "is", null)
+        .order("logged_at", { ascending: false })
+        .limit(50);
+
+      if (cancelled) return;
+
+      // Deduplicate by label, count occurrences, pick top 3
+      const mealMap = new Map<string, { label: string; kcal: number; protein: number; carbs: number; fat: number; count: number }>();
+      for (const m of (recentMeals ?? [])) {
+        const key = (m.label ?? "").toLowerCase().trim();
+        if (!key) continue;
+        const existing = mealMap.get(key);
+        if (existing) {
+          existing.count++;
+        } else {
+          mealMap.set(key, {
+            label: m.label!,
+            kcal: Math.round(Number(m.kcal) || 0),
+            protein: Math.round(Number(m.protein_g) || 0),
+            carbs: Math.round(Number(m.carbs_g) || 0),
+            fat: Math.round(Number(m.fat_g) || 0),
+            count: 1,
+          });
+        }
+      }
+      const mealSuggestions = [...mealMap.values()]
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 3);
+
+      // Meal size estimates from historical averages for this slot
+      const slotKcals = (recentMeals ?? []).map((m: any) => Number(m.kcal) || 0).filter((k) => k > 0);
+      let avgKcal = 550;
+      if (slotKcals.length >= 3) {
+        avgKcal = Math.round(slotKcals.reduce((a, b) => a + b, 0) / slotKcals.length);
+      }
+      const mealSizeEstimates = {
+        light: Math.round(avgKcal * 0.55 / 10) * 10,
+        regular: Math.round(avgKcal / 10) * 10,
+        heavy: Math.round(avgKcal * 1.45 / 10) * 10,
+      };
+
       setHub({
         weeklyVolume: Math.round(thisWeekVol),
         lastWeekVolume: Math.round(lastWeekVol),
@@ -639,6 +710,8 @@ export default function TrackHub() {
         weightSparkline,
         strengthSparkline: weekVolumes.slice(-6),
         latestPrDaysAgo,
+        mealSuggestions,
+        mealSizeEstimates,
       });
       setLoaded(true);
     }
@@ -648,9 +721,8 @@ export default function TrackHub() {
   }, [user, userSex, weightUnit]);
 
   // Quick water log
-  async function handleQuickWater() {
+  async function handleQuickWater(amount: number) {
     if (!user) return;
-    const amount = 250;
     await supabase.from("water_logs").insert({
       user_id: user.id,
       amount_ml: amount,
@@ -658,10 +730,110 @@ export default function TrackHub() {
     });
     setWaterToast(true);
     setTimeout(() => setWaterToast(false), 2000);
-    // Update local state
     if (hub) {
       setHub({ ...hub, todayWater: hub.todayWater + amount });
     }
+  }
+
+  // Quick weight log
+  async function handleQuickWeight() {
+    if (!user || !weightInput) return;
+    const raw = Number(weightInput);
+    if (raw <= 0 || isNaN(raw)) return;
+    setWeightLogging(true);
+    const storedKg = weightInputToKg(raw, weightUnit);
+    const today = toDateString(new Date());
+    await supabase.from("body_weight_logs").insert({
+      user_id: user.id,
+      weight: storedKg,
+      context: "quick",
+      entered_unit: weightUnit,
+      date: today,
+      sex: userSex,
+    });
+    await rematerializeWeightTrend(user.id, userSex);
+    if (hub) {
+      const delta = hub.bodyWeight !== null ? Number((storedKg - hub.bodyWeight).toFixed(1)) : null;
+      setHub({ ...hub, bodyWeight: storedKg, bodyWeightDelta: delta });
+    }
+    setWeightLogging(false);
+    setWeightOpen(false);
+    setWeightInput("");
+    setWaterToast(false);
+  }
+
+  // Pre-fill weight input when opening
+  function openWeightInput() {
+    if (hub?.bodyWeight) setWeightInput(formatWeight(hub.bodyWeight, weightUnit, 1));
+    setWeightOpen(true);
+    setTimeout(() => weightInputRef.current?.focus(), 50);
+  }
+
+  // Meal time-aware label
+  const mealLabel = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour < 11) return "Breakfast";
+    if (hour < 15) return "Lunch";
+    if (hour < 20) return "Dinner";
+    return "Snack";
+  }, []);
+
+  // Water pacing
+  const waterPacing = useMemo(() => {
+    if (!hub) return null;
+    const hour = new Date().getHours();
+    if (hour < 7) return null;
+    const dayProgress = Math.min((hour - 7) / 15, 1);
+    const expectedMl = hub.waterGoal * dayProgress;
+    if (hub.todayWater >= expectedMl) return "on-track";
+    if (hub.todayWater >= expectedMl * 0.7) return "slightly-behind";
+    return "behind";
+  }, [hub]);
+
+  // Weight logged today check
+  const weightLoggedToday = useMemo(() => {
+    if (!hub?.bodyWeight) return false;
+    return hub.timelineItems.some((t) => t.route.includes("weight"));
+  }, [hub]);
+
+  // Current meal slot
+  const currentMealSlot: MealSlot = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour < 11) return "breakfast";
+    if (hour < 15) return "lunch";
+    if (hour < 20) return "dinner";
+    return "snack";
+  }, []);
+
+  // Quick meal log (repeat a suggestion or quick estimate)
+  async function handleQuickMeal(entry: { label: string; kcal: number; protein: number; carbs: number; fat: number }) {
+    if (!user) return;
+    setMealLogging(true);
+    const today = toDateString(new Date());
+    await supabase.from("food_entries").insert({
+      user_id: user.id,
+      date: today,
+      meal_slot: currentMealSlot,
+      label: entry.label,
+      kcal: entry.kcal,
+      protein_g: entry.protein,
+      carbs_g: entry.carbs,
+      fat_g: entry.fat,
+      sex: userSex,
+    });
+    await rematerializeDailyIntake(user.id, today, userSex);
+    if (hub) {
+      setHub({
+        ...hub,
+        todayCalories: hub.todayCalories + entry.kcal,
+        todayProtein: hub.todayProtein + entry.protein,
+        todayCarbs: hub.todayCarbs + entry.carbs,
+        todayFat: hub.todayFat + entry.fat,
+      });
+    }
+    setMealLogging(false);
+    setMealOpen(false);
+    setWaterToast(false);
   }
 
   const volChange = useMemo(() => {
@@ -826,29 +998,231 @@ export default function TrackHub() {
 
             {/* Quick Log */}
             <motion.div variants={staggerItem}>
-              <span className="text-[11px] font-mono tracking-[0.2em] text-[var(--fg-30)] mb-3 block">QUICK LOG</span>
-              <div className="grid grid-cols-3 gap-3">
-                <button
-                  className="glass-card py-5 flex items-center justify-center gap-3 hover:bg-[var(--fg-04)] transition active:scale-95"
-                  onClick={() => router.push("/progress/weight")}
+              <span className="text-[11px] font-mono tracking-[0.2em] text-[var(--fg-30)] mb-3 block">LOG</span>
+              <div className="glass-card divide-y divide-[var(--fg-04)]">
+                {/* Weight row */}
+                <div
+                  className="flex items-center gap-3 px-4 py-3.5"
+                  style={{
+                    borderLeft: !weightLoggedToday ? "2.5px solid rgb(168 85 247)" : "2.5px solid transparent",
+                  }}
                 >
-                  <Scale size={20} className="text-[var(--fg-45)]" />
-                  <span className="text-[16px] font-semibold text-[var(--fg-60)]">Weight</span>
-                </button>
-                <button
-                  className="glass-card py-5 flex items-center justify-center gap-3 hover:bg-[var(--fg-04)] transition active:scale-95"
-                  onClick={handleQuickWater}
+                  <div
+                    className="w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0"
+                    style={{ background: "rgb(168 85 247 / 0.10)", color: "rgb(168 85 247)" }}
+                  >
+                    <Scale size={16} />
+                  </div>
+                  {weightOpen ? (
+                    <div className="flex-1 flex items-center gap-2">
+                      <input
+                        ref={weightInputRef}
+                        type="number"
+                        inputMode="decimal"
+                        value={weightInput}
+                        onChange={(e) => setWeightInput(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleQuickWeight()}
+                        className="w-20 h-8 rounded-lg text-center text-sm font-mono bg-[var(--fg-04)] text-[var(--fg-80)] border border-[var(--fg-08)] focus:border-[rgb(168_85_247_/_0.5)] outline-none"
+                        placeholder={formatWeight(hub.bodyWeight ?? 0, weightUnit, 1)}
+                      />
+                      <span className="text-[11px] text-[var(--fg-30)]">{weightUnit}</span>
+                      <button
+                        onClick={handleQuickWeight}
+                        disabled={weightLogging}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center active:scale-95 transition"
+                        style={{ background: "rgb(168 85 247 / 0.15)", color: "rgb(168 85 247)" }}
+                      >
+                        <Check size={16} />
+                      </button>
+                      <button
+                        onClick={() => { setWeightOpen(false); setWeightInput(""); }}
+                        className="text-[11px] text-[var(--fg-25)] ml-auto"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <button className="flex-1 min-w-0 text-left" onClick={openWeightInput}>
+                        <div className="text-[14px] font-semibold text-[var(--fg-80)]">
+                          {hub.bodyWeight !== null ? `${formatWeight(hub.bodyWeight, weightUnit, 1)} ${weightUnit}` : "Log weight"}
+                        </div>
+                        <div className="text-[11px] text-[var(--fg-25)] mt-0.5">
+                          {hub.bodyWeightDelta !== null ? (
+                            <span style={{ color: hub.bodyWeightDelta <= 0 ? "rgb(var(--status-recovered-rgb) / 0.8)" : "rgb(var(--status-fatigued-rgb) / 0.8)" }}>
+                              {hub.bodyWeightDelta > 0 ? "↑" : "↓"} {formatWeight(Math.abs(hub.bodyWeightDelta), weightUnit, 1)} /wk
+                            </span>
+                          ) : "Tap to log"}
+                        </div>
+                      </button>
+                      <button
+                        onClick={openWeightInput}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 active:scale-95 transition"
+                        style={{ background: "rgb(168 85 247 / 0.10)", color: "rgb(168 85 247)" }}
+                      >
+                        <Plus size={16} />
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {/* Water row */}
+                <div
+                  className="flex items-center gap-3 px-4 py-3.5"
+                  style={{
+                    borderLeft: waterPacing === "behind" ? "2.5px solid rgb(234 179 8)" : "2.5px solid transparent",
+                  }}
                 >
-                  <Droplet size={20} className="text-[var(--fg-45)]" />
-                  <span className="text-[16px] font-semibold text-[var(--fg-60)]">Water</span>
-                </button>
-                <button
-                  className="glass-card py-5 flex items-center justify-center gap-3 hover:bg-[var(--fg-04)] transition active:scale-95"
-                  onClick={() => router.push("/progress/intake")}
+                  <button
+                    className="w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0"
+                    style={{ background: "rgb(59 130 246 / 0.10)", color: "rgb(59 130 246)" }}
+                    onClick={() => router.push("/wellness")}
+                  >
+                    <Droplet size={16} />
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[14px] font-semibold text-[var(--fg-80)]">
+                        {(hub.todayWater / 1000).toFixed(1).replace(/\.0$/, "")} / {(hub.waterGoal / 1000).toFixed(0)}L
+                      </span>
+                      {waterPacing === "behind" && (
+                        <span className="text-[10px] font-mono" style={{ color: "rgb(234 179 8)" }}>behind pace</span>
+                      )}
+                      {waterPacing === "on-track" && hub.todayWater > 0 && (
+                        <span className="text-[10px] font-mono" style={{ color: "rgb(var(--status-recovered-rgb))" }}>on track</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <div className="flex-1 h-[5px] rounded-full bg-[var(--fg-06)] overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-300"
+                          style={{
+                            width: `${Math.min(100, (hub.todayWater / hub.waterGoal) * 100)}%`,
+                            backgroundColor: hub.todayWater >= hub.waterGoal ? "rgb(var(--status-recovered-rgb))" : "rgb(59 130 246)",
+                          }}
+                        />
+                      </div>
+                      <span className="text-[10px] font-mono text-[var(--fg-25)] shrink-0">
+                        {Math.ceil((hub.waterGoal - hub.todayWater) / 250) > 0
+                          ? `${Math.ceil((hub.waterGoal - hub.todayWater) / 250)} glasses left`
+                          : "Goal hit"}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex gap-1.5 shrink-0">
+                    <button
+                      onClick={() => handleQuickWater(250)}
+                      className="h-8 px-2.5 rounded-lg text-[12px] font-medium active:scale-95 transition"
+                      style={{ background: "rgb(59 130 246 / 0.12)", color: "rgb(59 130 246)" }}
+                    >
+                      +250
+                    </button>
+                    <button
+                      onClick={() => handleQuickWater(500)}
+                      className="h-8 px-2.5 rounded-lg text-[12px] font-medium active:scale-95 transition border border-[var(--fg-08)] text-[var(--fg-40)]"
+                    >
+                      +500
+                    </button>
+                  </div>
+                </div>
+
+                {/* Meal row */}
+                <div
+                  style={{
+                    borderLeft: hub.todayCalories === 0 ? "2.5px solid rgb(249 115 22)" : "2.5px solid transparent",
+                  }}
                 >
-                  <Flame size={20} className="text-[var(--fg-45)]" />
-                  <span className="text-[16px] font-semibold text-[var(--fg-60)]">Meal</span>
-                </button>
+                  <div
+                    className="flex items-center gap-3 px-4 py-3.5 cursor-pointer"
+                    onClick={() => setMealOpen(!mealOpen)}
+                  >
+                    <div
+                      className="w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0"
+                      style={{ background: "rgb(249 115 22 / 0.10)", color: "rgb(249 115 22)" }}
+                    >
+                      <Flame size={16} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[14px] font-semibold text-[var(--fg-80)]">
+                        {hub.todayCalories > 0
+                          ? `${hub.todayCalories.toLocaleString()} / ${hub.todayCalorieTarget.toLocaleString()} kcal`
+                          : `No ${mealLabel.toLowerCase()} yet`}
+                      </div>
+                      <div className="text-[11px] text-[var(--fg-25)] mt-0.5">
+                        {hub.todayCalories > 0
+                          ? `P:${hub.todayProtein}g · C:${hub.todayCarbs}g · F:${hub.todayFat}g`
+                          : `Tap to quick-log ${mealLabel.toLowerCase()}`}
+                      </div>
+                    </div>
+                    <ChevronRight
+                      size={16}
+                      className="text-[var(--fg-20)] shrink-0 transition-transform duration-200"
+                      style={{ transform: mealOpen ? "rotate(90deg)" : "rotate(0deg)" }}
+                    />
+                  </div>
+
+                  {mealOpen && (
+                    <div className="px-4 pb-3.5 space-y-3">
+                      {hub.mealSuggestions.length > 0 && (
+                        <div>
+                          <p className="text-[10px] font-mono tracking-widest text-[var(--fg-25)] mb-1.5">YOUR RECENT</p>
+                          <div className="space-y-1.5">
+                            {hub.mealSuggestions.map((s, i) => (
+                              <button
+                                key={i}
+                                disabled={mealLogging}
+                                onClick={() => handleQuickMeal(s)}
+                                className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg active:scale-[0.98] transition text-left"
+                                style={{ background: "var(--fg-04)" }}
+                              >
+                                <div className="min-w-0">
+                                  <span className="text-[13px] font-medium text-[var(--fg-80)] truncate block">{s.label}</span>
+                                  <span className="text-[10px] text-[var(--fg-30)]">{s.kcal} kcal · P:{s.protein}g C:{s.carbs}g F:{s.fat}g</span>
+                                </div>
+                                <Plus size={14} className="shrink-0 text-[var(--fg-25)]" />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div>
+                        <p className="text-[10px] font-mono tracking-widest text-[var(--fg-25)] mb-1.5">QUICK ESTIMATE</p>
+                        <div className="flex gap-2">
+                          {(["light", "regular", "heavy"] as const).map((size) => (
+                            <button
+                              key={size}
+                              disabled={mealLogging}
+                              onClick={() => handleQuickMeal({
+                                label: `${mealLabel} (${size})`,
+                                kcal: hub.mealSizeEstimates[size],
+                                protein: Math.round(hub.mealSizeEstimates[size] * 0.25 / 4),
+                                carbs: Math.round(hub.mealSizeEstimates[size] * 0.45 / 4),
+                                fat: Math.round(hub.mealSizeEstimates[size] * 0.30 / 9),
+                              })}
+                              className="flex-1 py-2 rounded-lg text-center active:scale-95 transition"
+                              style={{
+                                background: size === "regular" ? "rgb(249 115 22 / 0.12)" : "var(--fg-04)",
+                                color: size === "regular" ? "rgb(249 115 22)" : "var(--fg-60)",
+                              }}
+                            >
+                              <div className="text-[12px] font-semibold capitalize">{size}</div>
+                              <div className="text-[10px] opacity-70">{hub.mealSizeEstimates[size]} kcal</div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => router.push("/progress/intake")}
+                        className="w-full text-center text-[12px] font-medium py-2 rounded-lg active:scale-[0.98] transition"
+                        style={{ color: "rgb(249 115 22)" }}
+                      >
+                        Detailed log →
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </motion.div>
 
@@ -866,7 +1240,7 @@ export default function TrackHub() {
                     {hub.monthSessions} <span className="text-[15px] font-normal text-[var(--fg-25)]">/ {Math.max(hub.monthSessions, 16)}</span>
                   </p>
                   {volChange !== null && (
-                    <span className={`text-[11px] font-mono mt-1.5 block ${volChange >= 0 ? "text-emerald-400/80" : "text-orange-400/80"}`}>
+                    <span className="text-[11px] font-mono mt-1.5 block" style={{ color: volChange >= 0 ? "rgb(var(--status-recovered-rgb) / 0.8)" : "rgb(var(--status-fatigued-rgb) / 0.8)" }}>
                       {volChange >= 0 ? "↑" : "↓"} {Math.abs(volChange)} vs last month
                     </span>
                   )}
@@ -917,7 +1291,7 @@ export default function TrackHub() {
                   </p>
                   <div className="flex items-center gap-1.5 mt-1.5">
                     {hub.bodyWeightDelta !== null && (
-                      <span className={`text-[11px] font-mono ${hub.bodyWeightDelta <= 0 ? "text-emerald-400/80" : "text-orange-400/80"}`}>
+                      <span className="text-[11px] font-mono" style={{ color: hub.bodyWeightDelta <= 0 ? "rgb(var(--status-recovered-rgb) / 0.8)" : "rgb(var(--status-fatigued-rgb) / 0.8)" }}>
                         {hub.bodyWeightDelta > 0 ? "↑" : "↓"} {formatWeight(Math.abs(hub.bodyWeightDelta), weightUnit, 1)} /wk
                       </span>
                     )}
@@ -997,7 +1371,7 @@ export default function TrackHub() {
                         ))}
                       </div>
                       {hub.undertrainedMuscle && (
-                        <div className="flex items-center gap-2 mt-4 text-[11px] text-amber-400/80">
+                        <div className="flex items-center gap-2 mt-4 text-[11px]" style={{ color: "rgb(var(--status-recovering-rgb) / 0.8)" }}>
                           <span>⚠</span> {hub.undertrainedMuscle} undertrained this week
                         </div>
                       )}

@@ -397,7 +397,7 @@ export default function StrengthPage() {
                         {projections.length > 0 && (
                             <div className="glass-card rounded-2xl p-4">
                                 <div className="flex items-center gap-2 mb-3">
-                                    <TrendingUp size={14} className="text-emerald-400" />
+                                    <TrendingUp size={14} style={{ color: "rgb(var(--status-recovered-rgb))" }} />
                                     <p className="text-[10px] font-mono tracking-widest text-[var(--fg-25)]">PROJECTIONS</p>
                                 </div>
                                 <div className="space-y-2">
@@ -406,10 +406,10 @@ export default function StrengthPage() {
                                             key={i}
                                             className="flex items-center gap-3 rounded-lg border border-[var(--fg-04)] bg-[var(--fg-01)] px-3 py-2.5"
                                         >
-                                            <div className="w-1.5 h-8 rounded-full bg-emerald-400/60" />
+                                            <div className="w-1.5 h-8 rounded-full" style={{ background: "rgb(var(--status-recovered-rgb) / 0.6)" }} />
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-[11px] text-[var(--fg-60)] leading-relaxed">
-                                                    At this rate, <span className="font-bold text-[var(--fg-85)]">{proj.milestone}{weightUnit} {proj.exercise_name}</span> by <span className="font-bold text-emerald-400">{proj.projected_date}</span>
+                                                    At this rate, <span className="font-bold text-[var(--fg-85)]">{proj.milestone}{weightUnit} {proj.exercise_name}</span> by <span className="font-bold" style={{ color: "rgb(var(--status-recovered-rgb))" }}>{proj.projected_date}</span>
                                                 </p>
                                                 <p className="text-[8px] font-mono text-[var(--fg-25)] mt-0.5">
                                                     Current e1RM: {proj.current_e1rm}{weightUnit} · +{(proj.slope_per_day * 7).toFixed(1)}{weightUnit}/week
@@ -531,29 +531,29 @@ export default function StrengthPage() {
                                 </div>
                                 <div className="flex items-center gap-3 mb-4">
                                     <div className="flex items-center gap-1.5 text-[10px] font-mono">
-                                        <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                                        <span className="text-emerald-400">{strengthBenchmark.totalUp} up</span>
+                                        <span className="w-2 h-2 rounded-full" style={{ background: "rgb(var(--status-recovered-rgb))" }} />
+                                        <span style={{ color: "rgb(var(--status-recovered-rgb))" }}>{strengthBenchmark.totalUp} up</span>
                                     </div>
                                     <div className="flex items-center gap-1.5 text-[10px] font-mono">
                                         <span className="w-2 h-2 rounded-full bg-[var(--fg-20)]" />
                                         <span className="text-[var(--fg-30)]">{strengthBenchmark.totalStable} stable</span>
                                     </div>
                                     <div className="flex items-center gap-1.5 text-[10px] font-mono">
-                                        <span className="w-2 h-2 rounded-full bg-red-400" />
-                                        <span className="text-red-400">{strengthBenchmark.totalDown} down</span>
+                                        <span className="w-2 h-2 rounded-full" style={{ background: "rgb(var(--status-danger-rgb))" }} />
+                                        <span style={{ color: "rgb(var(--status-danger-rgb))" }}>{strengthBenchmark.totalDown} down</span>
                                     </div>
                                 </div>
                                 <div className="space-y-1.5">
                                     {strengthBenchmark.exercises.slice(0, 8).map((ex) => (
                                         <div key={ex.exerciseId} className="flex items-center gap-3 rounded-lg border border-[var(--fg-04)] bg-[var(--fg-01)] px-3 py-2">
-                                            <div className={`w-1.5 h-8 rounded-full ${ex.trend === "up" ? "bg-emerald-400" : ex.trend === "down" ? "bg-red-400" : "bg-[var(--fg-15)]"}`} />
+                                            <div className="w-1.5 h-8 rounded-full" style={{ background: ex.trend === "up" ? "rgb(var(--status-recovered-rgb))" : ex.trend === "down" ? "rgb(var(--status-danger-rgb))" : "var(--fg-15)" }} />
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-[11px] font-bold text-[var(--fg-80)] truncate">{ex.exerciseName}</p>
                                                 <p className="text-[9px] font-mono text-[var(--fg-25)]">{ex.bodySegment}</p>
                                             </div>
                                             <div className="text-right shrink-0">
                                                 <p className="text-[11px] font-bold font-mono text-[var(--fg-80)]">{Math.round(kgToUnit(ex.currentE1rm, weightUnit))}<span className="text-[9px] text-[var(--fg-30)]">{weightUnit}</span></p>
-                                                <p className={`text-[9px] font-mono ${ex.changePercent > 0 ? "text-emerald-400" : ex.changePercent < 0 ? "text-red-400" : "text-[var(--fg-25)]"}`}>
+                                                <p className="text-[9px] font-mono" style={{ color: ex.changePercent > 0 ? "rgb(var(--status-recovered-rgb))" : ex.changePercent < 0 ? "rgb(var(--status-danger-rgb))" : "var(--fg-25)" }}>
                                                     {ex.changePercent > 0 ? "+" : ""}{ex.changePercent}%
                                                 </p>
                                             </div>
@@ -562,7 +562,7 @@ export default function StrengthPage() {
                                 </div>
                                 {strengthBenchmark.strongestGain && (
                                     <p className="text-[10px] text-[var(--fg-30)] mt-3 border-t border-[var(--fg-04)] pt-3">
-                                        Biggest gain: <span className="text-emerald-400 font-bold">{strengthBenchmark.strongestGain.exerciseName}</span> +{strengthBenchmark.strongestGain.changePercent}%
+                                        Biggest gain: <span className="font-bold" style={{ color: "rgb(var(--status-recovered-rgb))" }}>{strengthBenchmark.strongestGain.exerciseName}</span> +{strengthBenchmark.strongestGain.changePercent}%
                                     </p>
                                 )}
                             </div>

@@ -31,60 +31,50 @@ function timeAgo(hours: number | null): string {
   return `${days}d ago`;
 }
 
-function statusConfig(status: RecoveryStatus): { icon: React.ReactNode; color: string; barColor: string; label: string; bgAccent: string } {
+function statusConfig(status: RecoveryStatus): { icon: React.ReactNode; colorVar: string; label: string } {
   switch (status) {
     case "recovered": return {
       icon: <ShieldCheck size={14} />,
-      color: "text-emerald-300",
-      barColor: "bg-emerald-400",
+      colorVar: "var(--status-recovered-rgb)",
       label: "RECOVERED",
-      bgAccent: "bg-emerald-400/8 border-emerald-400/15",
     };
     case "ready": return {
       icon: <Shield size={14} />,
-      color: "text-cyan-300",
-      barColor: "bg-cyan-400",
+      colorVar: "var(--status-ready-rgb)",
       label: "READY",
-      bgAccent: "bg-cyan-400/8 border-cyan-400/15",
     };
     case "moderate": return {
       icon: <ShieldAlert size={14} />,
-      color: "text-amber-300",
-      barColor: "bg-amber-300",
+      colorVar: "var(--status-recovering-rgb)",
       label: "RECOVERING",
-      bgAccent: "bg-amber-300/8 border-amber-300/15",
     };
     case "fatigued": return {
       icon: <ShieldX size={14} />,
-      color: "text-orange-400",
-      barColor: "bg-orange-400",
+      colorVar: "var(--status-fatigued-rgb)",
       label: "FATIGUED",
-      bgAccent: "bg-orange-400/8 border-orange-400/15",
     };
     case "overtrained": return {
       icon: <ShieldX size={14} />,
-      color: "text-red-400",
-      barColor: "bg-red-400",
+      colorVar: "var(--status-danger-rgb)",
       label: "REST NEEDED",
-      bgAccent: "bg-red-400/8 border-red-400/15",
     };
   }
 }
 
-function recoveryBarColor(pct: number): string {
-  if (pct >= 95) return "bg-emerald-400";
-  if (pct >= 80) return "bg-cyan-400";
-  if (pct >= 50) return "bg-amber-300";
-  if (pct >= 25) return "bg-orange-400";
-  return "bg-red-400";
+function recoveryBarVar(pct: number): string {
+  if (pct >= 95) return "var(--status-recovered-rgb)";
+  if (pct >= 80) return "var(--status-ready-rgb)";
+  if (pct >= 50) return "var(--status-recovering-rgb)";
+  if (pct >= 25) return "var(--status-fatigued-rgb)";
+  return "var(--status-danger-rgb)";
 }
 
-function overallStatusLabel(avg: number): { label: string; color: string } {
-  if (avg >= 85) return { label: "Fully Recovered", color: "text-emerald-300" };
-  if (avg >= 70) return { label: "Mostly Ready", color: "text-cyan-300" };
-  if (avg >= 50) return { label: "Partially Recovered", color: "text-amber-300" };
-  if (avg >= 30) return { label: "Significant Fatigue", color: "text-orange-400" };
-  return { label: "Rest Recommended", color: "text-red-400" };
+function overallStatusLabel(avg: number): { label: string; colorVar: string } {
+  if (avg >= 85) return { label: "Fully Recovered", colorVar: "var(--status-recovered-rgb)" };
+  if (avg >= 70) return { label: "Mostly Ready", colorVar: "var(--status-ready-rgb)" };
+  if (avg >= 50) return { label: "Partially Recovered", colorVar: "var(--status-recovering-rgb)" };
+  if (avg >= 30) return { label: "Significant Fatigue", colorVar: "var(--status-fatigued-rgb)" };
+  return { label: "Rest Recommended", colorVar: "var(--status-danger-rgb)" };
 }
 
 export default function RecoveryPage() {
@@ -195,17 +185,18 @@ export default function RecoveryPage() {
           {avgRecovery !== null && (
             <div className="text-right">
               <p className="text-2xl font-bold font-mono text-[var(--fg-90)]">{avgRecovery}%</p>
-              <p className={`text-[9px] font-mono ${overallStatus!.color}`}>{overallStatus!.label}</p>
+              <p className="text-[9px] font-mono" style={{ color: `rgb(${overallStatus!.colorVar})` }}>{overallStatus!.label}</p>
             </div>
           )}
         </div>
 
         {userSex === "female" && (
           <button onClick={() => router.push("/cycle")}
-            className="w-full flex items-center gap-3 rounded-xl border border-pink-500/20 bg-pink-500/5 px-4 py-3 hover:bg-pink-500/10 transition">
-            <Droplets size={16} className="text-pink-400 shrink-0" />
+            className="w-full flex items-center gap-3 rounded-xl border px-4 py-3 hover:opacity-80 transition"
+            style={{ borderColor: "rgb(var(--status-cycle-rgb) / 0.2)", background: "rgb(var(--status-cycle-rgb) / 0.05)" }}>
+            <Droplets size={16} className="shrink-0" style={{ color: "rgb(var(--status-cycle-rgb))" }} />
             <div className="flex-1 text-left">
-              <p className="text-[11px] font-mono text-pink-300">Cycle Tracking</p>
+              <p className="text-[11px] font-mono" style={{ color: "rgb(var(--status-cycle-rgb) / 0.8)" }}>Cycle Tracking</p>
               <p className="text-[9px] font-mono text-[var(--fg-25)]">Log periods, symptoms & phase-aware recommendations</p>
             </div>
             <ChevronLeft size={14} className="text-[var(--fg-20)] rotate-180" />
@@ -245,11 +236,11 @@ export default function RecoveryPage() {
                 <p className="text-[8px] font-mono text-[var(--fg-25)] mt-0.5">MUSCLES</p>
               </div>
               <div className="glass-card p-3 text-center">
-                <p className="text-lg font-bold font-mono text-emerald-300">{readyCount}</p>
+                <p className="text-lg font-bold font-mono" style={{ color: "rgb(var(--status-recovered-rgb))" }}>{readyCount}</p>
                 <p className="text-[8px] font-mono text-[var(--fg-25)] mt-0.5">READY</p>
               </div>
               <div className="glass-card p-3 text-center">
-                <p className="text-lg font-bold font-mono text-orange-400">{fatiguedCount}</p>
+                <p className="text-lg font-bold font-mono" style={{ color: "rgb(var(--status-fatigued-rgb))" }}>{fatiguedCount}</p>
                 <p className="text-[8px] font-mono text-[var(--fg-25)] mt-0.5">FATIGUED</p>
               </div>
               <div className="glass-card p-3 text-center">
@@ -260,9 +251,9 @@ export default function RecoveryPage() {
 
             {/* Schedule conflict warning (#27) */}
             {tomorrowConflicts.length > 0 && (
-              <div className="glass-card p-4 border border-orange-400/20 bg-orange-400/5">
+              <div className="glass-card p-4 border" style={{ borderColor: "rgb(var(--status-fatigued-rgb) / 0.2)", background: "rgb(var(--status-fatigued-rgb) / 0.05)" }}>
                 <div className="flex items-start gap-3">
-                  <AlertTriangle size={16} className="text-orange-400 mt-0.5 shrink-0" />
+                  <AlertTriangle size={16} className="mt-0.5 shrink-0" style={{ color: "rgb(var(--status-fatigued-rgb))" }} />
                   <div className="flex-1">
                     <p className="text-sm font-semibold text-[var(--fg-80)]">
                       Tomorrow's plan hits {tomorrowConflicts.join(", ")} which {tomorrowConflicts.length === 1 ? "is" : "are"} still fatigued
@@ -282,22 +273,22 @@ export default function RecoveryPage() {
             {/* "What can I train today?" card (#25) */}
             <div className="glass-card p-4">
               <div className="flex items-center gap-2 mb-3">
-                <Zap size={14} className="text-emerald-300" />
+                <Zap size={14} style={{ color: "rgb(var(--status-recovered-rgb))" }} />
                 <span className="text-[9px] font-mono tracking-widest text-[var(--fg-25)]">READY TO TRAIN</span>
               </div>
               <div className="space-y-1.5">
                 {readyRows.length > 0 && (
-                  <p className="text-sm text-emerald-300">
+                  <p className="text-sm" style={{ color: "rgb(var(--status-recovered-rgb))" }}>
                     {readyRows.map(r => r.segment).join(", ")} {readyRows.length === 1 ? "is" : "are"} good to go
                   </p>
                 )}
                 {recoveringRows.length > 0 && (
-                  <p className="text-xs text-amber-300/80">
+                  <p className="text-xs" style={{ color: "rgb(var(--status-recovering-rgb) / 0.8)" }}>
                     {recoveringRows.slice(0, 3).map(r => `${r.segment} (~${getRemainingHours(r)}h)`).join(", ")} still recovering
                   </p>
                 )}
                 {fatiguedRows.length > 0 && (
-                  <p className="text-xs text-red-400/70">
+                  <p className="text-xs" style={{ color: "rgb(var(--status-danger-rgb) / 0.7)" }}>
                     {fatiguedRows.map(r => r.segment).join(", ")} — rest recommended
                   </p>
                 )}
@@ -329,14 +320,14 @@ export default function RecoveryPage() {
 
             {/* Per-muscle cards grouped by status (#26) */}
             {[
-              { label: "Ready", rows: readyRows, color: "text-emerald-300", dotColor: "bg-emerald-400" },
-              { label: "Recovering", rows: recoveringRows, color: "text-amber-300", dotColor: "bg-amber-300" },
-              { label: "Fatigued", rows: fatiguedRows, color: "text-red-400", dotColor: "bg-red-400" },
+              { label: "Ready", rows: readyRows, colorVar: "var(--status-recovered-rgb)" },
+              { label: "Recovering", rows: recoveringRows, colorVar: "var(--status-recovering-rgb)" },
+              { label: "Fatigued", rows: fatiguedRows, colorVar: "var(--status-danger-rgb)" },
             ].filter(g => g.rows.length > 0).map(group => (
               <div key={group.label}>
                 <div className="flex items-center gap-2 mb-2">
-                  <span className={`w-2 h-2 rounded-full ${group.dotColor}`} />
-                  <span className={`text-[10px] font-mono tracking-widest ${group.color}`}>
+                  <span className="w-2 h-2 rounded-full" style={{ background: `rgb(${group.colorVar})` }} />
+                  <span className="text-[10px] font-mono tracking-widest" style={{ color: `rgb(${group.colorVar})` }}>
                     {group.label.toUpperCase()} ({group.rows.length})
                   </span>
                 </div>
@@ -361,8 +352,8 @@ export default function RecoveryPage() {
                       {/* Top row: name + status */}
                       <div className="flex items-center justify-between mb-2.5">
                         <div className="flex items-center gap-2.5">
-                          <div className={`w-8 h-8 rounded-lg border flex items-center justify-center ${config.bgAccent}`}>
-                            <span className={config.color}>{config.icon}</span>
+                          <div className="w-8 h-8 rounded-lg border flex items-center justify-center" style={{ background: `rgb(${config.colorVar} / 0.08)`, borderColor: `rgb(${config.colorVar} / 0.15)` }}>
+                            <span style={{ color: `rgb(${config.colorVar})` }}>{config.icon}</span>
                           </div>
                           <div>
                             <p className="text-sm font-bold text-[var(--fg-90)]">{r.segment}</p>
@@ -370,8 +361,8 @@ export default function RecoveryPage() {
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className={`text-lg font-bold font-mono ${config.color}`}>{r.recoveryPct}%</p>
-                          <p className={`text-[8px] font-mono ${config.color}`}>{config.label}</p>
+                          <p className="text-lg font-bold font-mono" style={{ color: `rgb(${config.colorVar})` }}>{r.recoveryPct}%</p>
+                          <p className="text-[8px] font-mono" style={{ color: `rgb(${config.colorVar})` }}>{config.label}</p>
                         </div>
                       </div>
 
@@ -382,7 +373,8 @@ export default function RecoveryPage() {
                             initial={{ width: 0 }}
                             animate={{ width: `${r.recoveryPct}%` }}
                             transition={{ duration: 0.6, ease: "easeOut" }}
-                            className={`h-full rounded-full ${config.barColor}`}
+                            className="h-full rounded-full"
+                            style={{ background: `rgb(${config.colorVar})` }}
                           />
                         </div>
                       </div>
@@ -391,7 +383,7 @@ export default function RecoveryPage() {
                       <div className="flex items-center gap-4 mt-2.5 text-[10px] font-mono text-[var(--fg-30)]">
                         <span className="flex items-center gap-1"><Clock size={10} /> ~{r.estimatedFullRecoveryHours}h full recovery</span>
                         <span className="flex items-center gap-1"><Dumbbell size={10} /> {weekSets} sets/wk</span>
-                        <span className={`${volumeStatus.color}`}>{volumeStatus.label}</span>
+                        <span style={{ color: volumeStatus.color }}>{volumeStatus.label}</span>
                       </div>
                     </button>
 
@@ -400,7 +392,7 @@ export default function RecoveryPage() {
                       <div className="px-4 pb-4 pt-0 border-t border-[var(--fg-04)] space-y-3">
                         {/* Science-based recommendation */}
                         <div className="flex items-start gap-2 mt-3 rounded-lg bg-[var(--fg-02)] border border-[var(--fg-06)] p-3">
-                          <Activity size={14} className={`${config.color} mt-0.5 shrink-0`} />
+                          <Activity size={14} className="mt-0.5 shrink-0" style={{ color: `rgb(${config.colorVar})` }} />
                           <p className="text-[11px] text-[var(--fg-50)] leading-relaxed">{r.recommendation}</p>
                         </div>
 
@@ -425,10 +417,10 @@ export default function RecoveryPage() {
                         {/* Volume status with trend */}
                         {adaptive && adaptive.trend !== "insufficient" && (
                           <div className="flex items-center gap-2 text-[10px] font-mono">
-                            {adaptive.trend === "improving" && <><TrendingUp size={12} className="text-emerald-300" /><span className="text-emerald-300">Performance improving</span></>}
-                            {adaptive.trend === "maintaining" && <><Minus size={12} className="text-cyan-300" /><span className="text-cyan-300">Performance stable</span></>}
-                            {adaptive.trend === "stalling" && <><Minus size={12} className="text-amber-300" /><span className="text-amber-300">Performance stalling</span></>}
-                            {adaptive.trend === "declining" && <><TrendingDown size={12} className="text-red-400" /><span className="text-red-400">Performance declining</span></>}
+                            {adaptive.trend === "improving" && <><TrendingUp size={12} style={{ color: "rgb(var(--status-recovered-rgb))" }} /><span style={{ color: "rgb(var(--status-recovered-rgb))" }}>Performance improving</span></>}
+                            {adaptive.trend === "maintaining" && <><Minus size={12} style={{ color: "rgb(var(--status-ready-rgb))" }} /><span style={{ color: "rgb(var(--status-ready-rgb))" }}>Performance stable</span></>}
+                            {adaptive.trend === "stalling" && <><Minus size={12} style={{ color: "rgb(var(--status-recovering-rgb))" }} /><span style={{ color: "rgb(var(--status-recovering-rgb))" }}>Performance stalling</span></>}
+                            {adaptive.trend === "declining" && <><TrendingDown size={12} style={{ color: "rgb(var(--status-danger-rgb))" }} /><span style={{ color: "rgb(var(--status-danger-rgb))" }}>Performance declining</span></>}
                             {adaptive.performanceChangePct !== null && (
                               <span className="text-[var(--fg-25)]">({adaptive.performanceChangePct > 0 ? "+" : ""}{Math.round(adaptive.performanceChangePct)}% e1RM)</span>
                             )}

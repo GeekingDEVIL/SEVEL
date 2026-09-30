@@ -614,7 +614,7 @@ export default function IntakePage() {
                                         <div className="flex items-center justify-between mb-3">
                                             <p className="text-[9px] font-mono tracking-[0.2em] text-[rgb(var(--accent-light-rgb)/0.5)]">{isToday ? "TODAY" : "DAILY SUMMARY"}</p>
                                             {intakeAdherence !== null && (
-                                                <p className="text-[9px] font-mono text-[var(--fg-30)]">30D: <span className={intakeAdherence >= 80 ? "text-emerald-300" : intakeAdherence >= 50 ? "text-amber-300" : "text-red-300"}>{intakeAdherence}%</span></p>
+                                                <p className="text-[9px] font-mono text-[var(--fg-30)]">30D: <span style={{ color: intakeAdherence >= 80 ? "rgb(var(--status-recovered-rgb))" : intakeAdherence >= 50 ? "rgb(var(--status-recovering-rgb))" : "rgb(var(--status-danger-rgb))" }}>{intakeAdherence}%</span></p>
                                             )}
                                         </div>
 
@@ -648,9 +648,9 @@ export default function IntakePage() {
                                         {target > 0 && (
                                             <div className="text-center mb-3">
                                                 {overTarget ? (
-                                                    <p className="text-sm font-bold font-mono text-red-400">{overBy} kcal over <span className="text-[var(--fg-20)] font-normal">target</span></p>
+                                                    <p className="text-sm font-bold font-mono" style={{ color: "rgb(var(--status-danger-rgb))" }}>{overBy} kcal over <span className="text-[var(--fg-20)] font-normal">target</span></p>
                                                 ) : (
-                                                    <p className="text-sm font-bold font-mono text-emerald-300">{remaining} kcal <span className="text-[var(--fg-20)] font-normal">{isToday ? "remaining" : "under target"}</span></p>
+                                                    <p className="text-sm font-bold font-mono" style={{ color: "rgb(var(--status-recovered-rgb))" }}>{remaining} kcal <span className="text-[var(--fg-20)] font-normal">{isToday ? "remaining" : "under target"}</span></p>
                                                 )}
                                             </div>
                                         )}
@@ -683,7 +683,7 @@ export default function IntakePage() {
                                                 </div>
                                                 <div className="text-center">
                                                     <p className="text-[8px] font-mono text-[var(--fg-30)]">CARBS</p>
-                                                    <p className="text-lg font-bold font-mono text-amber-300">{Math.round(totals.carbs)}g</p>
+                                                    <p className="text-lg font-bold font-mono" style={{ color: "rgb(var(--status-recovering-rgb))" }}>{Math.round(totals.carbs)}g</p>
                                                 </div>
                                                 <div className="text-center">
                                                     <p className="text-[8px] font-mono text-[var(--fg-30)]">FAT</p>
@@ -742,14 +742,14 @@ export default function IntakePage() {
                                     <div className="grid grid-cols-2 gap-3 mb-3">
                                         <div className="rounded-md bg-[var(--fg-03)] border border-[var(--fg-04)] p-2.5 text-center">
                                             <p className="text-[8px] font-mono text-[var(--fg-30)] mb-1">AVG VS TARGET</p>
-                                            <p className={`text-sm font-bold font-mono ${avgGood ? "text-emerald-300" : "text-amber-300"}`}>
+                                            <p className="text-sm font-bold font-mono" style={{ color: avgGood ? "rgb(var(--status-recovered-rgb))" : "rgb(var(--status-recovering-rgb))" }}>
                                                 {avg === 0 ? "On target" : `${absAvg} ${avg < 0 ? "under" : "over"}`}
                                             </p>
                                             <p className="text-[7px] font-mono text-[var(--fg-20)]">kcal/day</p>
                                         </div>
                                         <div className="rounded-md bg-[var(--fg-03)] border border-[var(--fg-04)] p-2.5 text-center">
                                             <p className="text-[8px] font-mono text-[var(--fg-30)] mb-1">WEEKLY PACE</p>
-                                            <p className={`text-sm font-bold font-mono ${weightGood ? "text-emerald-300" : "text-amber-300"}`}>
+                                            <p className="text-sm font-bold font-mono" style={{ color: weightGood ? "rgb(var(--status-recovered-rgb))" : "rgb(var(--status-recovering-rgb))" }}>
                                                 ~{avgPerWeek} {weightUnit}/{weightDelta < 0 ? "lost" : "gained"}
                                             </p>
                                             <p className="text-[7px] font-mono text-[var(--fg-20)]">per week</p>
@@ -762,11 +762,11 @@ export default function IntakePage() {
                                             <div className="flex items-center gap-1">
                                                 <p className="text-[8px] font-mono text-[var(--fg-30)] mr-1">STREAK</p>
                                                 {streakDots.map((d, i) => (
-                                                    <div key={i} className={`w-2 h-2 rounded-full ${d.hit ? "bg-emerald-400/70" : "bg-[var(--fg-10)]"}`} title={d.date} />
+                                                    <div key={i} className={`w-2 h-2 rounded-full ${d.hit ? "" : "bg-[var(--fg-10)]"}`} style={d.hit ? { background: "rgb(var(--status-recovered-rgb) / 0.7)" } : undefined} title={d.date} />
                                                 ))}
                                             </div>
                                             {currentStreak > 0 && (
-                                                <p className="text-[8px] font-mono text-emerald-300/50">{currentStreak} day{currentStreak !== 1 ? "s" : ""} on target</p>
+                                                <p className="text-[8px] font-mono" style={{ color: "rgb(var(--status-recovered-rgb) / 0.5)" }}>{currentStreak} day{currentStreak !== 1 ? "s" : ""} on target</p>
                                             )}
                                         </div>
                                     )}
@@ -842,9 +842,9 @@ export default function IntakePage() {
 
                         {/* Feasibility verdict */}
                         {feasibility && (
-                            <div className={`rounded-lg border p-4 ${feasibility.feasible ? "border-emerald-400/20 bg-emerald-400/[0.03]" : "border-amber-400/20 bg-amber-400/[0.03]"}`}>
+                            <div className="rounded-lg border p-4" style={feasibility.feasible ? { borderColor: "rgb(var(--status-recovered-rgb) / 0.2)", background: "rgb(var(--status-recovered-rgb) / 0.03)" } : { borderColor: "rgb(var(--status-recovering-rgb) / 0.2)", background: "rgb(var(--status-recovering-rgb) / 0.03)" }}>
                                 <div className="flex items-center gap-2 mb-2">
-                                    <div className={`w-2 h-2 rounded-full ${feasibility.feasible ? "bg-emerald-400" : "bg-amber-400"}`} />
+                                    <div className="w-2 h-2 rounded-full" style={{ background: feasibility.feasible ? "rgb(var(--status-recovered-rgb))" : "rgb(var(--status-recovering-rgb))" }} />
                                     <p className="text-[10px] font-mono tracking-widest text-[var(--fg-30)]">{feasibility.feasible ? "ON TRACK" : "ADJUST NEEDED"}</p>
                                 </div>
                                 <p className="text-xs font-mono text-[var(--fg-60)] mb-2">{feasibility.reason}</p>
@@ -864,7 +864,7 @@ export default function IntakePage() {
                                     <div className="mt-2 space-y-1">
                                         {feasibility.violations.map((v, i) => (
                                             <div key={i} className="text-[8px] font-mono text-[var(--fg-25)] flex gap-2">
-                                                <span className="text-amber-300/50 shrink-0">&#9888;</span>
+                                                <span className="shrink-0" style={{ color: "rgb(var(--status-recovering-rgb) / 0.5)" }}>&#9888;</span>
                                                 <span><span className="text-[var(--fg-40)]">{v.rule}:</span> {v.detail}</span>
                                             </div>
                                         ))}
@@ -971,7 +971,7 @@ export default function IntakePage() {
                                     <input type="number" min="0" inputMode="decimal" onWheel={(e) => (e.target as HTMLElement).blur()} value={intakeProtein} onChange={(e) => setIntakeProtein(e.target.value)} placeholder="—" className="w-full h-10 rounded-lg bg-[var(--fg-04)] border border-[var(--fg-08)] text-center text-sm font-mono focus:outline-none focus:border-[rgb(var(--accent-rgb)/0.4)] transition placeholder:text-[var(--fg-15)]" />
                                 </div>
                                 <div>
-                                    <label className="text-[8px] font-mono text-amber-300/50 block mb-1">CARBS (g)</label>
+                                    <label className="text-[8px] font-mono block mb-1" style={{ color: "rgb(var(--status-recovering-rgb) / 0.5)" }}>CARBS (g)</label>
                                     <input type="number" min="0" inputMode="decimal" onWheel={(e) => (e.target as HTMLElement).blur()} value={intakeCarbs} onChange={(e) => setIntakeCarbs(e.target.value)} placeholder="—" className="w-full h-10 rounded-lg bg-[var(--fg-04)] border border-[var(--fg-08)] text-center text-sm font-mono focus:outline-none focus:border-[rgb(var(--accent-rgb)/0.4)] transition placeholder:text-[var(--fg-15)]" />
                                 </div>
                                 <div>
@@ -1080,7 +1080,7 @@ export default function IntakePage() {
                                             <div className="flex items-center gap-3 mt-1">
                                                 <span className="text-xs font-bold font-mono text-[rgb(var(--accent-light-rgb))]">{entry.kcal} kcal</span>
                                                 <span className="text-[9px] font-mono text-rose-300/60">P{Math.round(Number(entry.protein_g))}</span>
-                                                <span className="text-[9px] font-mono text-amber-300/60">C{Math.round(Number(entry.carbs_g))}</span>
+                                                <span className="text-[9px] font-mono" style={{ color: "rgb(var(--status-recovering-rgb) / 0.6)" }}>C{Math.round(Number(entry.carbs_g))}</span>
                                                 <span className="text-[9px] font-mono text-blue-300/60">F{Math.round(Number(entry.fat_g))}</span>
                                             </div>
                                         </div>

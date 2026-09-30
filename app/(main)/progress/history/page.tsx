@@ -576,7 +576,13 @@ export default function HistoryPage() {
                                         <div className="flex items-center gap-2">
                                             <span className="text-sm font-bold font-mono text-[rgb(var(--accent-light-rgb))]">{Math.round(kgToUnit(latest.volume, weightUnit)).toLocaleString()}<span className="text-[9px] text-[var(--fg-25)] ml-0.5">{weightUnit}</span></span>
                                             {volChange !== 0 && (
-                                                <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded-md ${volChange > 0 ? "text-emerald-300 bg-emerald-400/10" : "text-orange-300 bg-orange-400/10"}`}>
+                                                <span
+                                                    className="text-[9px] font-mono px-1.5 py-0.5 rounded-md"
+                                                    style={volChange > 0
+                                                        ? { color: "rgb(var(--status-recovered-rgb))", background: "rgb(var(--status-recovered-rgb) / 0.1)" }
+                                                        : { color: "rgb(var(--status-fatigued-rgb))", background: "rgb(var(--status-fatigued-rgb) / 0.1)" }
+                                                    }
+                                                >
                                                     {volChange > 0 ? "+" : ""}{volChange}%
                                                 </span>
                                             )}
@@ -612,7 +618,10 @@ export default function HistoryPage() {
                                         <p className="text-2xl font-bold font-mono text-[var(--fg-90)]">{monthlyInsights.current.workouts}</p>
                                         <p className="text-[9px] font-mono text-[var(--fg-30)]">Workouts</p>
                                         {monthlyInsights.frequencyChange !== null && (
-                                            <p className={`text-[9px] font-mono mt-0.5 ${monthlyInsights.frequencyChange >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                            <p
+                                                className="text-[9px] font-mono mt-0.5"
+                                                style={{ color: monthlyInsights.frequencyChange >= 0 ? "rgb(var(--status-recovered-rgb))" : "rgb(var(--status-danger-rgb))" }}
+                                            >
                                                 {monthlyInsights.frequencyChange >= 0 ? "+" : ""}{monthlyInsights.frequencyChange}%
                                             </p>
                                         )}
@@ -621,7 +630,10 @@ export default function HistoryPage() {
                                         <p className="text-2xl font-bold font-mono text-[rgb(var(--accent-light-rgb))]">{(() => { const v = kgToUnit(monthlyInsights.current.totalVolume, weightUnit); return v >= 1000 ? `${(v / 1000).toFixed(1)}k` : Math.round(v); })()}</p>
                                         <p className="text-[9px] font-mono text-[var(--fg-30)]">Volume ({weightUnit})</p>
                                         {monthlyInsights.volumeChange !== null && (
-                                            <p className={`text-[9px] font-mono mt-0.5 ${monthlyInsights.volumeChange >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                            <p
+                                                className="text-[9px] font-mono mt-0.5"
+                                                style={{ color: monthlyInsights.volumeChange >= 0 ? "rgb(var(--status-recovered-rgb))" : "rgb(var(--status-danger-rgb))" }}
+                                            >
                                                 {monthlyInsights.volumeChange >= 0 ? "+" : ""}{monthlyInsights.volumeChange}%
                                             </p>
                                         )}
@@ -632,7 +644,7 @@ export default function HistoryPage() {
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-3 text-[9px] font-mono text-[var(--fg-25)] border-t border-[var(--fg-04)] pt-3">
-                                    <span className="flex items-center gap-1"><Flame size={10} className="text-orange-400" /> {monthlyInsights.streak} month streak</span>
+                                    <span className="flex items-center gap-1"><Flame size={10} style={{ color: "rgb(var(--status-fatigued-rgb))" }} /> {monthlyInsights.streak} month streak</span>
                                     {monthlyInsights.current.uniqueExercises > 0 && (
                                         <span>{monthlyInsights.current.uniqueExercises} exercises</span>
                                     )}
@@ -678,29 +690,35 @@ export default function HistoryPage() {
                                 </div>
                                 <div className="flex items-center gap-3 mb-4">
                                     <div className="flex items-center gap-1.5 text-[10px] font-mono">
-                                        <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                                        <span className="text-emerald-400">{strengthBenchmark.totalUp} up</span>
+                                        <span className="w-2 h-2 rounded-full" style={{ background: "rgb(var(--status-recovered-rgb))" }} />
+                                        <span style={{ color: "rgb(var(--status-recovered-rgb))" }}>{strengthBenchmark.totalUp} up</span>
                                     </div>
                                     <div className="flex items-center gap-1.5 text-[10px] font-mono">
                                         <span className="w-2 h-2 rounded-full bg-[var(--fg-20)]" />
                                         <span className="text-[var(--fg-30)]">{strengthBenchmark.totalStable} stable</span>
                                     </div>
                                     <div className="flex items-center gap-1.5 text-[10px] font-mono">
-                                        <span className="w-2 h-2 rounded-full bg-red-400" />
-                                        <span className="text-red-400">{strengthBenchmark.totalDown} down</span>
+                                        <span className="w-2 h-2 rounded-full" style={{ background: "rgb(var(--status-danger-rgb))" }} />
+                                        <span style={{ color: "rgb(var(--status-danger-rgb))" }}>{strengthBenchmark.totalDown} down</span>
                                     </div>
                                 </div>
                                 <div className="space-y-1.5">
                                     {strengthBenchmark.exercises.slice(0, 8).map((ex) => (
                                         <div key={ex.exerciseId} className="flex items-center gap-3 rounded-lg border border-[var(--fg-04)] bg-[var(--fg-01)] px-3 py-2">
-                                            <div className={`w-1.5 h-8 rounded-full ${ex.trend === "up" ? "bg-emerald-400" : ex.trend === "down" ? "bg-red-400" : "bg-[var(--fg-15)]"}`} />
+                                            <div
+                                                className={`w-1.5 h-8 rounded-full ${ex.trend === "stable" ? "bg-[var(--fg-15)]" : ""}`}
+                                                style={ex.trend === "up" ? { background: "rgb(var(--status-recovered-rgb))" } : ex.trend === "down" ? { background: "rgb(var(--status-danger-rgb))" } : undefined}
+                                            />
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-[11px] font-bold text-[var(--fg-80)] truncate">{ex.exerciseName}</p>
                                                 <p className="text-[9px] font-mono text-[var(--fg-25)]">{ex.bodySegment}</p>
                                             </div>
                                             <div className="text-right shrink-0">
                                                 <p className="text-[11px] font-bold font-mono text-[var(--fg-80)]">{Math.round(kgToUnit(ex.currentE1rm, weightUnit))}<span className="text-[9px] text-[var(--fg-30)]">{weightUnit}</span></p>
-                                                <p className={`text-[9px] font-mono ${ex.changePercent > 0 ? "text-emerald-400" : ex.changePercent < 0 ? "text-red-400" : "text-[var(--fg-25)]"}`}>
+                                                <p
+                                                    className={`text-[9px] font-mono ${ex.changePercent === 0 ? "text-[var(--fg-25)]" : ""}`}
+                                                    style={ex.changePercent > 0 ? { color: "rgb(var(--status-recovered-rgb))" } : ex.changePercent < 0 ? { color: "rgb(var(--status-danger-rgb))" } : undefined}
+                                                >
                                                     {ex.changePercent > 0 ? "+" : ""}{ex.changePercent}%
                                                 </p>
                                             </div>
@@ -709,7 +727,7 @@ export default function HistoryPage() {
                                 </div>
                                 {strengthBenchmark.strongestGain && (
                                     <p className="text-[10px] text-[var(--fg-30)] mt-3 border-t border-[var(--fg-04)] pt-3">
-                                        Biggest gain: <span className="text-emerald-400 font-bold">{strengthBenchmark.strongestGain.exerciseName}</span> +{strengthBenchmark.strongestGain.changePercent}%
+                                        Biggest gain: <span className="font-bold" style={{ color: "rgb(var(--status-recovered-rgb))" }}>{strengthBenchmark.strongestGain.exerciseName}</span> +{strengthBenchmark.strongestGain.changePercent}%
                                     </p>
                                 )}
                             </div>
@@ -751,7 +769,13 @@ export default function HistoryPage() {
                                             <div className="flex items-center justify-center gap-1.5">
                                                 <p className="text-[11px] font-mono text-[var(--fg-80)]">{row.fmt(row.newVal)}</p>
                                                 {delta !== 0 && (
-                                                    <span className={`text-[9px] font-mono px-1 py-0.5 rounded ${delta > 0 ? "text-emerald-400 bg-emerald-400/10" : "text-red-400 bg-red-400/10"}`}>
+                                                    <span
+                                                        className="text-[9px] font-mono px-1 py-0.5 rounded"
+                                                        style={delta > 0
+                                                            ? { color: "rgb(var(--status-recovered-rgb))", background: "rgb(var(--status-recovered-rgb) / 0.1)" }
+                                                            : { color: "rgb(var(--status-danger-rgb))", background: "rgb(var(--status-danger-rgb) / 0.1)" }
+                                                        }
+                                                    >
                                                         {delta > 0 ? "+" : ""}{delta}%
                                                     </span>
                                                 )}

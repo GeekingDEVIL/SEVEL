@@ -155,7 +155,7 @@ export const MODULE_REGISTRY: Record<ModuleKey, ModuleDef> = {
   habits: {
     key: "habits",
     name: "Habits",
-    description: "Daily habit streaks, constellation sky, XP rewards, auto-complete",
+    description: "Daily habit streaks, XP rewards, loot drops, auto-complete",
     icon: Flame,
     colorRgb: "244 63 94",
     domain: "lifestyle",
