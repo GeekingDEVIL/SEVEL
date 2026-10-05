@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { X, Camera, Square, RotateCcw, ChevronRight, Circle } from "lucide-react";
-import { analyzeForm, getScoreColor, getScoreLabel, checkFormRealtime, RepDetector, type FormFrame, type FormAnalysisResult, type BarPathPoint, type JointStatus, type RepResult } from "../lib/formAnalysis";
+import { analyzeForm, analyzeMaForm, getScoreColor, getScoreLabel, checkFormRealtime, checkMaFormRealtime, RepDetector, type FormFrame, type FormAnalysisResult, type BarPathPoint, type JointStatus, type RepResult, type MaExerciseType } from "../lib/formAnalysis";
 import { LandmarkSmoother } from "../lib/oneEuroFilter";
 import { getExerciseGuide, SILHOUETTE_PATHS } from "../lib/formGuides";
 import { supabase } from "../lib/supabase";
@@ -28,7 +28,7 @@ const POSE_CONNECTIONS = [
 
 type Phase = "loading" | "ready" | "countdown" | "recording" | "analyzing" | "results";
 
-export default function FormCheckCamera({ exerciseName, onClose }: { exerciseName: string; onClose: () => void }) {
+export default function FormCheckCamera({ exerciseName, onClose, maExerciseType }: { exerciseName: string; onClose: () => void; maExerciseType?: MaExerciseType }) {
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -246,7 +246,9 @@ export default function FormCheckCamera({ exerciseName, onClose }: { exerciseNam
                 // Run real-time form check every 3rd frame for performance
                 if (frameCountRef.current % 3 === 0) {
                     const prevStatus = lastFormStatusRef.current;
-                    feedbackRef.current = checkFormRealtime(rawLandmarks, detectedExerciseRef.current);
+                    feedbackRef.current = maExerciseType
+                        ? checkMaFormRealtime(rawLandmarks, maExerciseType)
+                        : checkFormRealtime(rawLandmarks, detectedExerciseRef.current);
 
                     // Haptic on form break (1.7)
                     let worst: JointStatus = "good";
@@ -353,7 +355,9 @@ export default function FormCheckCamera({ exerciseName, onClose }: { exerciseNam
         startTimeRef.current = 0;
 
         setTimeout(() => {
-            const analysis = analyzeForm(framesRef.current);
+            const analysis = maExerciseType
+                ? analyzeMaForm(framesRef.current, maExerciseType)
+                : analyzeForm(framesRef.current);
             setResult(analysis);
             setPhase("results");
             // Auto-save to DB (fire and forget)

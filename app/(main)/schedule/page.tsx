@@ -33,6 +33,7 @@ import MaSessionInline from "../../components/MaSessionInline";
 import PlateMath from "../../components/PlateMath";
 import type { WorkoutPlan } from "../../lib/planLibrary";
 import { DISCIPLINES, SESSION_TYPE_LABELS, PHASE1_DISCIPLINES, getSessionTypesForDiscipline, type DisciplineId, type SessionType } from "../../lib/martialArtsEngine";
+import { getAnimation, midpoint, type Skeleton, type Vec2 } from "../../lib/techniqueAnimations";
 import {
     useWorkoutSession,
     formatClock,
@@ -50,6 +51,78 @@ const LazyFormCheck = dynamic(() => import("../../components/FormCheckCamera"), 
         <div className="w-10 h-10 border-2 border-[rgb(var(--accent-rgb)/0.3)] border-t-[rgb(var(--accent-rgb))] rounded-full animate-spin" />
     </div>
 ) });
+
+// ═══════════════════════════════════════════════════════════════
+// MA stick figure helpers
+// ═══════════════════════════════════════════════════════════════
+
+const DISCIPLINE_PREVIEW_TECHNIQUES: Record<string, string[]> = {
+  boxing:       ["jab", "cross", "hook", "uppercut", "slip"],
+  muay_thai:    ["roundhouse", "teep", "horizontal elbow", "straight knee", "muay thai stance"],
+  kickboxing:   ["jab", "roundhouse", "cross", "teep", "slip"],
+  bjj:          ["shrimp", "bridge", "sprawl", "breakfall", "technical standup"],
+  wrestling:    ["sprawl", "breakfall"],
+  judo:         ["breakfall", "sprawl"],
+  mma:          ["jab", "cross", "roundhouse", "sprawl", "teep"],
+  karate:       ["jab", "roundhouse", "orthodox stance"],
+  taekwondo:    ["roundhouse", "teep", "orthodox stance"],
+  kung_fu:      ["jab", "roundhouse", "orthodox stance"],
+  krav_maga:    ["jab", "cross", "orthodox stance", "sprawl"],
+  shaolin:      ["orthodox stance", "roundhouse", "teep"],
+};
+
+function MiniStickFigure({ pose, colorRgb, size = 28 }: { pose: Skeleton; colorRgb: string; size?: number }) {
+  const s = size / 200;
+  const h = 290 * s;
+  const c = `rgb(${colorRgb})`;
+  const b = "var(--fg-30)";
+  const neck: Vec2 = midpoint(pose.sL, pose.sR);
+  const hipL: Vec2 = [pose.hp[0] - 12, pose.hp[1]];
+  const hipR: Vec2 = [pose.hp[0] + 12, pose.hp[1]];
+  const ln = (a: Vec2, bv: Vec2, k: string, cl: string, w: number) => (
+    <line key={k} x1={a[0]*s} y1={a[1]*s} x2={bv[0]*s} y2={bv[1]*s} stroke={cl} strokeWidth={w} strokeLinecap="round" />
+  );
+  return (
+    <svg width={size} height={h} viewBox={`0 0 ${size} ${h}`} xmlns="http://www.w3.org/2000/svg">
+      {ln(neck, pose.hp, "t", b, 3.5*s)}
+      {ln(pose.sL, pose.sR, "sh", b, 2.5*s)}
+      {ln(pose.sL, pose.eL, "ual", c, 2.5*s)}
+      {ln(pose.eL, pose.wL, "fal", c, 2.5*s)}
+      {ln(pose.sR, pose.eR, "uar", c, 2.5*s)}
+      {ln(pose.eR, pose.wR, "far", c, 2.5*s)}
+      {ln(hipL, pose.kL, "ull", b, 2.5*s)}
+      {ln(pose.kL, pose.aL, "lll", b, 2.5*s)}
+      {ln(hipR, pose.kR, "ulr", b, 2.5*s)}
+      {ln(pose.kR, pose.aR, "llr", b, 2.5*s)}
+      <circle cx={pose.wL[0]*s} cy={pose.wL[1]*s} r={4*s} fill={c} />
+      <circle cx={pose.wR[0]*s} cy={pose.wR[1]*s} r={4*s} fill={c} />
+      <circle cx={pose.hd[0]*s} cy={pose.hd[1]*s} r={10*s} fill="var(--fg-15)" stroke={b} strokeWidth={2*s} />
+    </svg>
+  );
+}
+
+function MaPreviewFigures({ discipline, colorRgb }: { discipline: string; colorRgb: string }) {
+  const figures = useMemo(() => {
+    const names = DISCIPLINE_PREVIEW_TECHNIQUES[discipline] ?? DISCIPLINE_PREVIEW_TECHNIQUES["boxing"];
+    const result: { name: string; pose: Skeleton }[] = [];
+    for (const n of names) {
+      const anim = getAnimation(n);
+      if (anim && result.length < 4) result.push({ name: n, pose: anim.frames[0].pose });
+    }
+    return result;
+  }, [discipline]);
+
+  if (figures.length === 0) return null;
+  return (
+    <div className="flex items-center gap-1 mt-2">
+      {figures.map(f => (
+        <div key={f.name} className="flex flex-col items-center">
+          <MiniStickFigure pose={f.pose} colorRgb={colorRgb} size={28} />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Types
@@ -771,6 +844,7 @@ function DayEditorModal({
                                         <div className="rounded-xl border p-4 text-center" style={{ borderColor: `rgb(${DISCIPLINES[maDiscipline].colorRgb} / 0.2)`, background: `rgb(${DISCIPLINES[maDiscipline].colorRgb} / 0.04)` }}>
                                             <p className="text-lg">{DISCIPLINES[maDiscipline].emoji}</p>
                                             <p className="text-sm font-bold mt-1" style={{ color: `rgb(${DISCIPLINES[maDiscipline].colorRgb})` }}>{DISCIPLINES[maDiscipline].name} — {SESSION_TYPE_LABELS[maSessionType].name}</p>
+                                            <div className="flex justify-center"><MaPreviewFigures discipline={maDiscipline} colorRgb={DISCIPLINES[maDiscipline].colorRgb} /></div>
                                             <p className="text-[10px] text-[var(--fg-35)] mt-1">This will repeat every {WEEKDAY_FULL[weekday]}</p>
                                         </div>
                                     )}
@@ -1870,6 +1944,7 @@ export default function SchedulePage() {
                                             <span style={{ color: `rgb(${maDisc.colorRgb})` }}>+{maXp} XP</span>
                                         </div>
                                     </div>
+                                    <MaPreviewFigures discipline={todayMaSession.discipline} colorRgb={maDisc.colorRgb} />
                                     <Check size={16} style={{ color: `rgb(${maDisc.colorRgb})` }} />
                                 </div>
                             </div>
@@ -3291,23 +3366,25 @@ export default function SchedulePage() {
                                         <span style={{ color: todayDisc ? `rgb(${todayDisc.colorRgb})` : "rgb(var(--accent-rgb))" }}>+{todayMaSession.xp} XP</span>
                                     </div>
                                 </div>
+                                {todayDisc && <MaPreviewFigures discipline={todayMaSession.discipline} colorRgb={todayDisc.colorRgb} />}
                             </div>
                         </div>
                     ) : todayMaSession ? null : (
                         <div className="rounded-2xl border overflow-hidden"
                             style={{ borderColor: todayDisc ? `rgb(${todayDisc.colorRgb} / 0.2)` : "var(--fg-06)", borderLeftWidth: 3, borderLeftColor: todayDisc ? `rgb(${todayDisc.colorRgb} / 0.5)` : undefined, background: todayDisc ? `rgb(${todayDisc.colorRgb} / 0.04)` : "var(--fg-03)" }}>
                             <div className="px-5 py-4">
-                                <div className="flex items-center gap-2 mb-3">
+                                <div className="flex items-center gap-2 mb-2">
                                     {todayDisc && <span className="text-lg">{todayDisc.emoji}</span>}
                                     <div>
                                         <p className="text-xs font-medium" style={{ color: todayDisc ? `rgb(${todayDisc.colorRgb})` : undefined }}>{todayDisc?.name}</p>
                                         {todayStLabel && <p className="text-[10px] text-[var(--fg-35)]">{todayStLabel.description}</p>}
                                     </div>
                                 </div>
+                                {todayDisc && <MaPreviewFigures discipline={todayMaPlan!.ma_discipline!} colorRgb={todayDisc.colorRgb} />}
                                 <button
                                     onClick={() => setMaSessionActive(true)}
                                     disabled={w.todaySessions.length >= w.MAX_SESSIONS_PER_DAY}
-                                    className="w-full py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition active:scale-[0.98] disabled:opacity-40"
+                                    className="w-full mt-3 py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition active:scale-[0.98] disabled:opacity-40"
                                     style={{ background: todayDisc ? `rgb(${todayDisc.colorRgb})` : "rgb(var(--accent-rgb))", color: "#000" }}>
                                     <Play size={15} fill="black" />
                                     {w.todaySessions.length >= w.MAX_SESSIONS_PER_DAY ? "Daily Limit Reached" : "Begin Training"}

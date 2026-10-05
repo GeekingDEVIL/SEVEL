@@ -40,8 +40,47 @@ export type KneeCaveCheck = {
     message: string;
 };
 
+export type MaExerciseType = "stance" | "punch" | "kick" | "elbow" | "knee" | "form";
+
+export type StanceCheck = {
+    passed: boolean;
+    issue: string;
+    message: string;
+};
+
+export type GuardCheck = {
+    passed: boolean;
+    handsUp: boolean;
+    chinTucked: boolean;
+    message: string;
+};
+
+export type ExtensionCheck = {
+    passed: boolean;
+    maxExtension: number;
+    recoilSpeed: number;
+    message: string;
+};
+
+export type BalanceCheck = {
+    passed: boolean;
+    swayAmount: number;
+    message: string;
+};
+
+export type MaFormAnalysis = {
+    stance?: StanceCheck;
+    guard?: GuardCheck;
+    extension?: ExtensionCheck;
+    balance?: BalanceCheck;
+    hipRotation?: { detected: boolean; degrees: number; message: string };
+    chamberHeight?: { correct: boolean; message: string };
+};
+
 export type FormAnalysisResult = {
-    exerciseType: "squat" | "deadlift" | "bench" | "overhead_press" | "general";
+    exerciseType: "squat" | "deadlift" | "bench" | "overhead_press" | "general"
+        | "ma_stance" | "ma_punch" | "ma_kick" | "ma_elbow" | "ma_knee" | "ma_form";
+    maExerciseType?: MaExerciseType;
     frameCount: number;
     duration: number;
     depth?: DepthCheck;
@@ -49,6 +88,7 @@ export type FormAnalysisResult = {
     kneeCave?: KneeCaveCheck;
     barPath?: BarPathPoint[];
     reps?: RepResult[];
+    maAnalysis?: MaFormAnalysis;
     overallScore: number;
     tips: string[];
 };
@@ -211,6 +251,352 @@ function detectMovement(frames: FormFrame[]): number {
     }
 
     return totalDelta / ((sample.length - 1) * joints.length);
+}
+
+// ─── MA-specific analysis helpers ─────────────────────────────
+
+function analyzeMaStance(frames: FormFrame[]): StanceCheck {
+    let wideEnoughCount = 0;
+    let kneesBentCount = 0;
+    const sample = frames.filter((_, i) => i % 3 === 0);
+
+    for (const f of sample) {
+        const lm = f.landmarks;
+        const footWidth = Math.abs(lm[LM.LEFT_ANKLE].x - lm[LM.RIGHT_ANKLE].x);
+        const shoulderWidth = Math.abs(lm[LM.LEFT_SHOULDER].x - lm[LM.RIGHT_SHOULDER].x);
+        if (footWidth >= shoulderWidth * 0.8) wideEnoughCount++;
+
+        const lKnee = angle3(lm[LM.LEFT_HIP], lm[LM.LEFT_KNEE], lm[LM.LEFT_ANKLE]);
+        const rKnee = angle3(lm[LM.RIGHT_HIP], lm[LM.RIGHT_KNEE], lm[LM.RIGHT_ANKLE]);
+        if ((lKnee + rKnee) / 2 < 170) kneesBentCount++;
+    }
+
+    const wideRatio = wideEnoughCount / sample.length;
+    const bentRatio = kneesBentCount / sample.length;
+    const passed = wideRatio > 0.5 && bentRatio > 0.3;
+    const issue = !passed
+        ? (wideRatio <= 0.5 ? "narrow" : "straight_legs")
+        : "none";
+
+    return {
+        passed,
+        issue,
+        message: passed
+            ? "Good fighting stance — feet wide, knees bent"
+            : wideRatio <= 0.5
+                ? "Stance too narrow — feet should be at least shoulder width apart"
+                : "Bend your knees more — a lower center of gravity improves stability",
+    };
+}
+
+function analyzeMaGuard(frames: FormFrame[]): GuardCheck {
+    let handsUpCount = 0;
+    let chinTuckedCount = 0;
+    const sample = frames.filter((_, i) => i % 3 === 0);
+
+    for (const f of sample) {
+        const lm = f.landmarks;
+        const noseY = lm[LM.NOSE].y;
+        const lWristY = lm[LM.LEFT_WRIST].y;
+        const rWristY = lm[LM.RIGHT_WRIST].y;
+        const shoulderY = (lm[LM.LEFT_SHOULDER].y + lm[LM.RIGHT_SHOULDER].y) / 2;
+        if (lWristY < shoulderY + 0.02 && rWristY < shoulderY + 0.02) handsUpCount++;
+
+        const chinToShoulder = noseY - shoulderY;
+        if (chinToShoulder < 0.15) chinTuckedCount++;
+    }
+
+    const handsUp = handsUpCount / sample.length > 0.5;
+    const chinTucked = chinTuckedCount / sample.length > 0.4;
+    return {
+        passed: handsUp && chinTucked,
+        handsUp,
+        chinTucked,
+        message: !handsUp
+            ? "Keep hands up near your chin — don't drop your guard"
+            : !chinTucked
+                ? "Tuck your chin — protect your jaw"
+                : "Good guard — hands up, chin tucked",
+    };
+}
+
+function analyzeMaExtension(frames: FormFrame[], type: MaExerciseType): ExtensionCheck {
+    let maxElbowExt = 0;
+    let maxKneeExt = 0;
+    let recoilFrames = 0;
+    let peakFrame = 0;
+    const isKickType = type === "kick" || type === "knee";
+
+    for (let i = 0; i < frames.length; i++) {
+        const lm = frames[i].landmarks;
+        if (isKickType) {
+            const lKnee = angle3(lm[LM.LEFT_HIP], lm[LM.LEFT_KNEE], lm[LM.LEFT_ANKLE]);
+            const rKnee = angle3(lm[LM.RIGHT_HIP], lm[LM.RIGHT_KNEE], lm[LM.RIGHT_ANKLE]);
+            const ext = Math.max(lKnee, rKnee);
+            if (ext > maxKneeExt) { maxKneeExt = ext; peakFrame = i; }
+        } else {
+            const lElbow = angle3(lm[LM.LEFT_SHOULDER], lm[LM.LEFT_ELBOW], lm[LM.LEFT_WRIST]);
+            const rElbow = angle3(lm[LM.RIGHT_SHOULDER], lm[LM.RIGHT_ELBOW], lm[LM.RIGHT_WRIST]);
+            const ext = Math.max(lElbow, rElbow);
+            if (ext > maxElbowExt) { maxElbowExt = ext; peakFrame = i; }
+        }
+    }
+
+    const maxExt = isKickType ? maxKneeExt : maxElbowExt;
+    const threshold = isKickType ? 140 : 150;
+    const passed = maxExt >= threshold;
+
+    if (peakFrame > 0 && peakFrame < frames.length - 3) {
+        const lmPeak = frames[peakFrame].landmarks;
+        const lmAfter = frames[Math.min(peakFrame + 3, frames.length - 1)].landmarks;
+        const peakWristDist = Math.abs(lmPeak[LM.LEFT_WRIST].y - lmAfter[LM.LEFT_WRIST].y)
+            + Math.abs(lmPeak[LM.RIGHT_WRIST].y - lmAfter[LM.RIGHT_WRIST].y);
+        recoilFrames = peakWristDist > 0.03 ? 1 : 0;
+    }
+
+    return {
+        passed,
+        maxExtension: Math.round(maxExt),
+        recoilSpeed: recoilFrames,
+        message: passed
+            ? `Good extension — ${Math.round(maxExt)}° reach${recoilFrames > 0 ? ", nice snap back" : ""}`
+            : `Extend more — only reached ${Math.round(maxExt)}° (aim for ${threshold}°+)`,
+    };
+}
+
+function analyzeMaBalance(frames: FormFrame[]): BalanceCheck {
+    const sample = frames.filter((_, i) => i % 2 === 0);
+    let totalSway = 0;
+
+    for (let i = 1; i < sample.length; i++) {
+        const prev = sample[i - 1].landmarks;
+        const curr = sample[i].landmarks;
+        const prevHipX = (prev[LM.LEFT_HIP].x + prev[LM.RIGHT_HIP].x) / 2;
+        const currHipX = (curr[LM.LEFT_HIP].x + curr[LM.RIGHT_HIP].x) / 2;
+        totalSway += Math.abs(currHipX - prevHipX);
+    }
+
+    const avgSway = sample.length > 1 ? totalSway / (sample.length - 1) : 0;
+    const passed = avgSway < 0.008;
+
+    return {
+        passed,
+        swayAmount: Math.round(avgSway * 1000) / 1000,
+        message: passed
+            ? "Good balance — minimal body sway"
+            : "Too much body sway — focus on rooting your feet and tightening your core",
+    };
+}
+
+function analyzeMaHipRotation(frames: FormFrame[]): MaFormAnalysis["hipRotation"] {
+    if (frames.length < 5) return { detected: false, degrees: 0, message: "Not enough frames" };
+
+    let maxRotation = 0;
+    const firstLm = frames[0].landmarks;
+    const baseHipWidth = Math.abs(firstLm[LM.LEFT_HIP].x - firstLm[LM.RIGHT_HIP].x);
+
+    for (const f of frames) {
+        const lm = f.landmarks;
+        const hipWidth = Math.abs(lm[LM.LEFT_HIP].x - lm[LM.RIGHT_HIP].x);
+        const ratio = baseHipWidth > 0 ? hipWidth / baseHipWidth : 1;
+        const rotDeg = Math.acos(Math.min(1, ratio)) * (180 / Math.PI);
+        if (rotDeg > maxRotation) maxRotation = rotDeg;
+    }
+
+    const detected = maxRotation > 10;
+    return {
+        detected,
+        degrees: Math.round(maxRotation),
+        message: detected
+            ? `Hip rotation detected — ~${Math.round(maxRotation)}° turn. Power comes from the hips!`
+            : "Limited hip rotation — rotate your hips into strikes for more power",
+    };
+}
+
+function analyzeMaChamber(frames: FormFrame[]): MaFormAnalysis["chamberHeight"] {
+    let chambered = false;
+    for (const f of frames) {
+        const lm = f.landmarks;
+        const lKnee = angle3(lm[LM.LEFT_HIP], lm[LM.LEFT_KNEE], lm[LM.LEFT_ANKLE]);
+        const rKnee = angle3(lm[LM.RIGHT_HIP], lm[LM.RIGHT_KNEE], lm[LM.RIGHT_ANKLE]);
+        if (Math.min(lKnee, rKnee) < 100) { chambered = true; break; }
+    }
+
+    return {
+        correct: chambered,
+        message: chambered
+            ? "Good chamber — knee lifts to waist height before extending"
+            : "Chamber your kick — lift knee high before extending the leg",
+    };
+}
+
+export function analyzeMaForm(
+    frames: FormFrame[],
+    maType: MaExerciseType,
+): FormAnalysisResult {
+    if (frames.length < 5) {
+        return {
+            exerciseType: `ma_${maType}` as FormAnalysisResult["exerciseType"],
+            maExerciseType: maType,
+            frameCount: frames.length,
+            duration: 0, overallScore: 0,
+            tips: ["Not enough frames captured. Try holding the camera steady for at least 3 seconds."],
+        };
+    }
+
+    const duration = (frames[frames.length - 1].timestamp - frames[0].timestamp) / 1000;
+    if (duration < 2) {
+        return {
+            exerciseType: `ma_${maType}` as FormAnalysisResult["exerciseType"],
+            maExerciseType: maType,
+            frameCount: frames.length,
+            duration: Math.round(duration), overallScore: 0,
+            tips: ["Recording too short — record for at least 2 seconds."],
+        };
+    }
+
+    const tips: string[] = [];
+    let score = 50;
+    const maAnalysis: MaFormAnalysis = {};
+
+    maAnalysis.stance = analyzeMaStance(frames);
+    if (maAnalysis.stance.passed) score += 10; else { score -= 5; tips.push(maAnalysis.stance.message); }
+
+    if (maType !== "form") {
+        maAnalysis.guard = analyzeMaGuard(frames);
+        if (maAnalysis.guard.passed) score += 10; else { score -= 5; tips.push(maAnalysis.guard.message); }
+    }
+
+    maAnalysis.balance = analyzeMaBalance(frames);
+    if (maAnalysis.balance.passed) score += 10; else { score -= 5; tips.push(maAnalysis.balance.message); }
+
+    if (maType === "punch" || maType === "elbow") {
+        maAnalysis.extension = analyzeMaExtension(frames, maType);
+        if (maAnalysis.extension.passed) score += 15; else { score -= 5; tips.push(maAnalysis.extension.message); }
+
+        maAnalysis.hipRotation = analyzeMaHipRotation(frames);
+        if (maAnalysis.hipRotation?.detected) score += 10; else { score -= 5; tips.push(maAnalysis.hipRotation?.message ?? ""); }
+    }
+
+    if (maType === "kick" || maType === "knee") {
+        maAnalysis.extension = analyzeMaExtension(frames, maType);
+        if (maAnalysis.extension.passed) score += 15; else { score -= 5; tips.push(maAnalysis.extension.message); }
+
+        maAnalysis.chamberHeight = analyzeMaChamber(frames);
+        if (maAnalysis.chamberHeight?.correct) score += 10; else { score -= 5; tips.push(maAnalysis.chamberHeight?.message ?? ""); }
+
+        maAnalysis.hipRotation = analyzeMaHipRotation(frames);
+        if (maAnalysis.hipRotation?.detected) score += 5;
+    }
+
+    if (maType === "form") {
+        maAnalysis.balance = analyzeMaBalance(frames);
+        if (maAnalysis.balance.passed) score += 15; else { score -= 10; tips.push(maAnalysis.balance.message); }
+
+        const symmetry = analyzeSymmetry(frames);
+        if (symmetry.passed) score += 10; else { score -= 5; tips.push("Work on symmetry between left and right sides."); }
+    }
+
+    if (maType === "stance") {
+        if (maAnalysis.stance.passed) score += 10;
+        maAnalysis.balance = analyzeMaBalance(frames);
+        if (maAnalysis.balance.passed) score += 10; else { tips.push(maAnalysis.balance.message); }
+    }
+
+    if (tips.length === 0) tips.push("Form looks solid — keep training!");
+
+    return {
+        exerciseType: `ma_${maType}` as FormAnalysisResult["exerciseType"],
+        maExerciseType: maType,
+        frameCount: frames.length,
+        duration: Math.round(duration),
+        maAnalysis,
+        overallScore: Math.max(0, Math.min(100, score)),
+        tips,
+    };
+}
+
+export function checkMaFormRealtime(
+    landmarks: NormalizedLandmark[],
+    maType: MaExerciseType,
+): RealtimeFormFeedback {
+    const jointStatus = new Map<number, JointStatus>();
+    const connectionStatus = new Map<string, JointStatus>();
+
+    const setJoint = (idx: number, s: JointStatus) => {
+        const cur = jointStatus.get(idx);
+        if (!cur || s === "bad" || (s === "warn" && cur === "good")) jointStatus.set(idx, s);
+    };
+    const setConn = (a: number, b: number, s: JointStatus) => {
+        const key = CONN_KEY(a, b);
+        const cur = connectionStatus.get(key);
+        if (!cur || s === "bad" || (s === "warn" && cur === "good")) connectionStatus.set(key, s);
+    };
+
+    // Guard check — hands should be near chin
+    const noseY = landmarks[LM.NOSE].y;
+    const lWristY = landmarks[LM.LEFT_WRIST].y;
+    const rWristY = landmarks[LM.RIGHT_WRIST].y;
+    const shoulderY = (landmarks[LM.LEFT_SHOULDER].y + landmarks[LM.RIGHT_SHOULDER].y) / 2;
+
+    if (maType !== "form") {
+        if (lWristY > shoulderY + 0.06) {
+            setJoint(LM.LEFT_WRIST, "bad"); setConn(LM.LEFT_ELBOW, LM.LEFT_WRIST, "bad");
+        } else if (lWristY > shoulderY + 0.02) {
+            setJoint(LM.LEFT_WRIST, "warn"); setConn(LM.LEFT_ELBOW, LM.LEFT_WRIST, "warn");
+        } else {
+            setJoint(LM.LEFT_WRIST, "good");
+        }
+
+        if (rWristY > shoulderY + 0.06) {
+            setJoint(LM.RIGHT_WRIST, "bad"); setConn(LM.RIGHT_ELBOW, LM.RIGHT_WRIST, "bad");
+        } else if (rWristY > shoulderY + 0.02) {
+            setJoint(LM.RIGHT_WRIST, "warn"); setConn(LM.RIGHT_ELBOW, LM.RIGHT_WRIST, "warn");
+        } else {
+            setJoint(LM.RIGHT_WRIST, "good");
+        }
+    }
+
+    // Stance width check
+    const footWidth = Math.abs(landmarks[LM.LEFT_ANKLE].x - landmarks[LM.RIGHT_ANKLE].x);
+    const shoulderWidth = Math.abs(landmarks[LM.LEFT_SHOULDER].x - landmarks[LM.RIGHT_SHOULDER].x);
+    if (footWidth < shoulderWidth * 0.6) {
+        setJoint(LM.LEFT_ANKLE, "bad"); setJoint(LM.RIGHT_ANKLE, "bad");
+    } else if (footWidth < shoulderWidth * 0.8) {
+        setJoint(LM.LEFT_ANKLE, "warn"); setJoint(LM.RIGHT_ANKLE, "warn");
+    } else {
+        setJoint(LM.LEFT_ANKLE, "good"); setJoint(LM.RIGHT_ANKLE, "good");
+    }
+
+    // Knee bend check
+    const lKneeAngle = angle3(landmarks[LM.LEFT_HIP], landmarks[LM.LEFT_KNEE], landmarks[LM.LEFT_ANKLE]);
+    const rKneeAngle = angle3(landmarks[LM.RIGHT_HIP], landmarks[LM.RIGHT_KNEE], landmarks[LM.RIGHT_ANKLE]);
+    if (maType === "kick" || maType === "knee") {
+        const minKnee = Math.min(lKneeAngle, rKneeAngle);
+        if (minKnee < 90) {
+            setJoint(LM.LEFT_KNEE, "good"); setJoint(LM.RIGHT_KNEE, "good");
+        }
+    } else {
+        if (lKneeAngle > 175 && rKneeAngle > 175) {
+            setJoint(LM.LEFT_KNEE, "warn"); setJoint(LM.RIGHT_KNEE, "warn");
+        }
+    }
+
+    // Elbow extension for punch/elbow types
+    if (maType === "punch" || maType === "elbow") {
+        const lElbow = angle3(landmarks[LM.LEFT_SHOULDER], landmarks[LM.LEFT_ELBOW], landmarks[LM.LEFT_WRIST]);
+        const rElbow = angle3(landmarks[LM.RIGHT_SHOULDER], landmarks[LM.RIGHT_ELBOW], landmarks[LM.RIGHT_WRIST]);
+        const maxElbow = Math.max(lElbow, rElbow);
+        if (maxElbow > 160) {
+            const side = lElbow > rElbow ? "left" : "right";
+            const [s, e, w] = side === "left"
+                ? [LM.LEFT_SHOULDER, LM.LEFT_ELBOW, LM.LEFT_WRIST]
+                : [LM.RIGHT_SHOULDER, LM.RIGHT_ELBOW, LM.RIGHT_WRIST];
+            setJoint(e, "good"); setConn(s, e, "good"); setConn(e, w, "good");
+        }
+    }
+
+    return { jointStatus, connectionStatus };
 }
 
 export function analyzeForm(frames: FormFrame[]): FormAnalysisResult {

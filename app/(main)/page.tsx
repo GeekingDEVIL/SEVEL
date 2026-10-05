@@ -167,39 +167,46 @@ export default function Dashboard() {
         return;
       }
 
-      const { data: plan } = await supabase
+      const { data: plans } = await supabase
         .from("recurring_plans")
-        .select("template_id, is_rest, workout_templates(name)")
+        .select("template_id, is_rest, session_type, workout_templates(name)")
         .eq("user_id", user.id)
         .eq("weekday", weekday)
-        .eq("sex", userSex)
-        .maybeSingle();
+        .eq("sex", userSex);
 
       if (cancelled) return;
 
-      if (!plan) {
+      if (!plans || plans.length === 0) {
         setTodayPlan(null);
         setTodayLoading(false);
         return;
       }
 
-      if (plan.is_rest) {
+      const gymPlan = plans.find((p: any) => p.session_type === "gym" || (!p.session_type && p.template_id));
+      const restOnly = plans.every((p: any) => p.is_rest);
+
+      if (restOnly) {
         setTodayPlan({ title: "Rest / Recovery", is_rest: true, count: 0, sets: 0 });
         setTodayLoading(false);
         return;
       }
 
-      if (plan.template_id) {
+      if (gymPlan && gymPlan.template_id) {
         const { data: te } = await supabase
           .from("workout_template_exercises")
           .select("target_sets")
-          .eq("template_id", plan.template_id);
+          .eq("template_id", gymPlan.template_id);
         if (cancelled) return;
         const count = te?.length ?? 0;
         const sets = (te ?? []).reduce((s, e: any) => s + (e.target_sets || 0), 0);
-        setTodayPlan({ title: (plan as any).workout_templates?.name || "Untitled Workout", is_rest: false, count, sets });
+        setTodayPlan({ title: (gymPlan as any).workout_templates?.name || "Untitled Workout", is_rest: false, count, sets });
       } else {
-        setTodayPlan(null);
+        const maPlan = plans.find((p: any) => p.session_type === "ma" && !p.is_rest);
+        if (maPlan) {
+          setTodayPlan({ title: "Martial Arts Session", is_rest: false, count: 0, sets: 0 });
+        } else {
+          setTodayPlan(null);
+        }
       }
       setTodayLoading(false);
     }

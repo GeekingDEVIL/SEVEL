@@ -39,6 +39,35 @@ const EXERCISE_PATTERNS: { keywords: string[]; guide: GuideInfo }[] = [
         keywords: ["curl", "bicep", "hammer curl", "preacher"],
         guide: { angle: "front", label: "Front View", tip: "Place phone in front to check elbow position" },
     },
+    // MA technique patterns
+    {
+        keywords: ["jab", "cross", "straight", "punch", "hook", "uppercut", "overhand"],
+        guide: { angle: "angle45", label: "45° Angle", tip: "Stand 6-8 feet away at a slight angle to see rotation + extension" },
+    },
+    {
+        keywords: ["roundhouse", "front kick", "side kick", "teep", "push kick", "spinning", "back kick", "axe kick"],
+        guide: { angle: "side", label: "Side View", tip: "Place phone at hip height to the side — shows chamber + extension" },
+    },
+    {
+        keywords: ["elbow", "sok", "spinning elbow"],
+        guide: { angle: "angle45", label: "45° Angle", tip: "Angle view shows elbow arc and hip rotation" },
+    },
+    {
+        keywords: ["knee", "flying knee", "clinch knee", "spear knee"],
+        guide: { angle: "side", label: "Side View", tip: "Side view shows knee drive height and hip thrust" },
+    },
+    {
+        keywords: ["stance", "guard", "fighting stance", "orthodox", "southpaw"],
+        guide: { angle: "front", label: "Front View", tip: "Face the camera to check stance width and hand position" },
+    },
+    {
+        keywords: ["kata", "poomsae", "form", "hyung", "pattern"],
+        guide: { angle: "front", label: "Front View", tip: "Full body in frame — check balance and symmetry through the whole form" },
+    },
+    {
+        keywords: ["slip", "bob", "weave", "parry", "block", "check", "defense"],
+        guide: { angle: "front", label: "Front View", tip: "Face the camera to check head movement and guard position" },
+    },
 ];
 
 export function getExerciseGuide(exerciseName: string): GuideInfo {
@@ -47,6 +76,19 @@ export function getExerciseGuide(exerciseName: string): GuideInfo {
         if (keywords.some((k) => lower.includes(k))) return guide;
     }
     return { angle: "front", label: "Any Angle", tip: "Position your full body in frame" };
+}
+
+export type MaExerciseTypeGuide = "stance" | "punch" | "kick" | "elbow" | "knee" | "form";
+
+export function getMaExerciseType(category: string, techniqueName: string): MaExerciseTypeGuide {
+    const cat = category.toLowerCase();
+    const name = techniqueName.toLowerCase();
+    if (cat === "stances" || cat === "stance" || name.includes("stance") || name.includes("guard")) return "stance";
+    if (cat === "kicks" || cat === "kick" || name.includes("kick") || name.includes("teep")) return "kick";
+    if (cat === "elbows" || cat === "elbow" || name.includes("elbow") || name.includes("sok")) return "elbow";
+    if (cat === "knees" || cat === "knee" || name.includes("knee")) return "knee";
+    if (cat === "forms" || name.includes("kata") || name.includes("poomsae") || name.includes("form")) return "form";
+    return "punch";
 }
 
 // SVG silhouette paths for each camera angle (simplified body outlines)
