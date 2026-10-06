@@ -2750,7 +2750,14 @@ export default function SchedulePage() {
                                     <div className="flex items-center gap-2.5 rounded-lg border border-[rgb(var(--accent-rgb)/0.12)] bg-[rgb(var(--accent-rgb)/0.03)] px-3 py-2">
                                         <div className="w-1 h-4 rounded-full bg-[rgb(var(--accent-rgb)/0.4)]" />
                                         <Check size={12} className="text-[rgb(var(--accent-rgb)/0.5)] shrink-0" />
-                                        <span className="text-[11px] font-medium text-[var(--fg-35)] truncate flex-1">{ex.name}</span>
+                                        <div className="flex-1 min-w-0">
+                                            <span className="text-[11px] font-medium text-[var(--fg-35)] truncate block">{ex.name}</span>
+                                            {(() => {
+                                                const bestSet = workingSetsOnly.filter(s => s.completed).reduce((best, s) => (!best || (Number(s.weight) || 0) > (Number(best.weight) || 0)) ? s : best, null as typeof workingSetsOnly[0] | null);
+                                                if (bestSet?.weight) return <span className="text-[9px] font-mono text-[rgb(var(--accent-rgb)/0.4)]">Top: {bestSet.weight}{w.weightUnit} × {bestSet.reps}</span>;
+                                                return null;
+                                            })()}
+                                        </div>
                                         <span className="text-[9px] font-mono text-[var(--fg-20)] shrink-0">{done}/{workingSetsOnly.length}</span>
                                     </div>
                                     </div>
@@ -2774,7 +2781,16 @@ export default function SchedulePage() {
                                         ) : (
                                             <div className="w-6 h-6 rounded bg-[var(--fg-04)] border border-[var(--fg-06)] flex items-center justify-center text-[8px] font-mono text-[var(--fg-20)] shrink-0">{String(i + 1).padStart(2, "0")}</div>
                                         )}
-                                        <span className="text-[12px] font-medium text-[var(--fg-60)] truncate flex-1">{ex.name}</span>
+                                        <div className="flex-1 min-w-0">
+                                            <span className="text-[12px] font-medium text-[var(--fg-60)] truncate block">{ex.name}</span>
+                                            {(() => {
+                                                const lp = last;
+                                                if (lp?.weight && lp.reps) return <span className="text-[9px] font-mono text-[var(--fg-20)]">Last: {lp.weight}{w.weightUnit} × {lp.reps}</span>;
+                                                if (ex.target_weight) return <span className="text-[9px] font-mono text-[var(--fg-20)]">Target: {ex.target_weight}{w.weightUnit} × {ex.target_reps || "?"}</span>;
+                                                if (ex.target_reps) return <span className="text-[9px] font-mono text-[var(--fg-20)]">{ex.target_reps} reps × {workingSetsOnly.length} sets</span>;
+                                                return null;
+                                            })()}
+                                        </div>
                                         <span className="text-[9px] font-mono text-[var(--fg-25)] shrink-0">{done}/{workingSetsOnly.length}</span>
                                         <ChevronRight size={12} className="text-[var(--fg-15)] shrink-0" />
                                     </div>

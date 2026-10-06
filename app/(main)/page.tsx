@@ -910,9 +910,14 @@ export default function Dashboard() {
                 <p className="text-sm font-medium text-[var(--fg-70)]">Yesterday was <span className="text-orange-300">{missedWorkout}</span></p>
                 <p className="text-[10px] font-mono text-[var(--fg-25)] mt-0.5">Missed session — reschedule or skip?</p>
               </div>
-              <button onClick={() => router.push("/schedule")} className="shrink-0 px-3 py-1.5 rounded-lg bg-[var(--fg-06)] border border-[var(--fg-08)] text-[10px] font-mono text-[var(--fg-50)] hover:text-[var(--fg-80)] transition">
-                Schedule
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button onClick={() => setMissedWorkout(null)} className="px-2.5 py-1.5 rounded-lg text-[10px] font-mono text-[var(--fg-25)] hover:text-[var(--fg-50)] transition">
+                  Skip
+                </button>
+                <button onClick={() => router.push("/schedule")} className="px-3 py-1.5 rounded-lg bg-orange-400/15 border border-orange-400/20 text-[10px] font-mono text-orange-300 hover:bg-orange-400/25 transition">
+                  Schedule
+                </button>
+              </div>
             </div>
           </motion.div>
         )}
