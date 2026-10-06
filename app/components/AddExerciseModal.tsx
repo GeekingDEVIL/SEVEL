@@ -473,6 +473,46 @@ export default function AddExerciseModal({
 
         {/* Exercise list */}
         <div className="flex-1 overflow-y-auto custom-scroll px-5 py-4 pb-24 space-y-2">
+          {/* Category picker cards (2.1) — show when no filters active */}
+          {!query && discipline === "All" && bodySegment === "All" && !showFilters && !showCreateForm && (() => {
+            const CATEGORY_CARDS = [
+              { segment: "Chest", emoji: "💪", color: "#ef4444" },
+              { segment: "Back", emoji: "🔙", color: "#f97316" },
+              { segment: "Shoulders", emoji: "🦾", color: "#eab308" },
+              { segment: "Legs", emoji: "🦵", color: "#22c55e" },
+              { segment: "Core", emoji: "🎯", color: "#3b82f6" },
+              { segment: "Full Body", emoji: "⚡", color: "#a855f7" },
+              { segment: "Cardio", emoji: "🏃", color: "#ec4899" },
+            ];
+            const disciplineCards = availableDisciplines.filter(d => d.key !== "All" && d.key !== "strength");
+            return (
+              <div className="mb-3">
+                <p className="text-[9px] font-mono tracking-widest text-[var(--fg-25)] mb-2">BROWSE BY CATEGORY</p>
+                <div className="grid grid-cols-4 gap-1.5 mb-3">
+                  {CATEGORY_CARDS.map(c => {
+                    const count = exercises.filter(ex => ex.body_segment === c.segment).length;
+                    return (
+                      <button key={c.segment} onClick={() => setBodySegment(c.segment)}
+                        className="rounded-lg border border-[var(--fg-08)] bg-[var(--fg-02)] p-2 text-center hover:border-[var(--fg-15)] active:scale-95 transition">
+                        <span className="text-sm block">{c.emoji}</span>
+                        <p className="text-[9px] font-bold text-[var(--fg-60)] mt-0.5 truncate">{c.segment}</p>
+                        <p className="text-[8px] font-mono text-[var(--fg-20)]">{count}</p>
+                      </button>
+                    );
+                  })}
+                  {disciplineCards.length > 0 && disciplineCards.slice(0, 5).map(d => (
+                    <button key={d.key} onClick={() => setDiscipline(d.key)}
+                      className="rounded-lg border p-2 text-center active:scale-95 transition"
+                      style={{ borderColor: `${d.color}33`, background: `${d.color}0a` }}>
+                      <span className="text-sm block">{d.emoji}</span>
+                      <p className="text-[9px] font-bold truncate" style={{ color: d.color }}>{d.label}</p>
+                      <p className="text-[8px] font-mono text-[var(--fg-20)]">{exercises.filter(ex => (ex.discipline ?? "strength") === d.key).length}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
           {/* Create Custom Exercise form */}
           {showCreateForm && (
             <div className="rounded-md border border-[rgb(var(--accent-rgb)/0.3)] bg-[var(--fg-03)] p-4 mb-3">

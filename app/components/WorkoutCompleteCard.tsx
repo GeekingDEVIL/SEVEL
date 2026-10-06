@@ -563,12 +563,32 @@ export default function WorkoutCompleteCard({
                             );
                         })()}
 
-                        {/* 7. Exercise list (only when viewing summary or last session) */}
+                        {/* 7. Exercise list — unified debrief scroll with category indicators (1.5) */}
                         {exerciseDetails.length > 0 && (
                             <div className="reveal d8">
                                 <div className="exercise-header-label">EXERCISES LOGGED</div>
                                 <div className="exercise-list">
-                                    {exerciseDetails.map((ex) => {
+                                    {exerciseDetails.map((ex, exIdx) => {
+                                        const catKey = ex.disc !== "strength" && DISCIPLINE_COLORS[ex.disc] ? ex.disc : ex.segment === "Cardio" ? "cardio" : "gym";
+                                        const prevCatKey = exIdx > 0 ? (() => {
+                                            const p = exerciseDetails[exIdx - 1];
+                                            return p.disc !== "strength" && DISCIPLINE_COLORS[p.disc] ? p.disc : p.segment === "Cardio" ? "cardio" : "gym";
+                                        })() : null;
+                                        const showCatHeader = exerciseDetails.length > 1 && catKey !== prevCatKey && (() => {
+                                            const cats = new Set(exerciseDetails.map(e => e.disc !== "strength" && DISCIPLINE_COLORS[e.disc] ? e.disc : e.segment === "Cardio" ? "cardio" : "gym"));
+                                            return cats.size > 1;
+                                        })();
+                                        const catLabel = catKey === "gym" ? "STRENGTH" : catKey === "cardio" ? "CARDIO" : catKey.toUpperCase().replace(/_/g, " ");
+                                        const catColor = catKey === "gym" ? "rgb(var(--accent-rgb))" : catKey === "cardio" ? "#ec4899" : (DISCIPLINE_COLORS[catKey] || "var(--fg-50)");
+                                        return (<>
+                                        {showCatHeader && (
+                                            <div key={`cat-${catKey}`} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 0 4px",marginTop: exIdx > 0 ? 4 : 0}}>
+                                                <div style={{width:8,height:2,borderRadius:1,background:catColor}} />
+                                                <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:7,letterSpacing:2,color:catColor,opacity:0.7}}>{catLabel}</span>
+                                                <div style={{flex:1,height:1,background:"var(--fg-06)"}} />
+                                            </div>
+                                        )}
+                                        {(() => {
                                         const isOpen = openExercise === ex.idx;
                                         const discColor = DISCIPLINE_COLORS[ex.disc] || "";
                                         const intensityLabel = (v: number) => v <= 1 ? "Light" : v >= 3 ? "Hard" : "Med";
@@ -615,6 +635,8 @@ export default function WorkoutCompleteCard({
                                                 </div>
                                             </div>
                                         );
+                                        })()}
+                                        </>);
                                     })}
                                 </div>
                             </div>

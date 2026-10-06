@@ -16,7 +16,7 @@
 
 ---
 
-## DONE (37 items)
+## DONE (53 items)
 
 | # | Item | Source |
 |---|------|--------|
@@ -57,59 +57,34 @@
 | — | Flow state detection (UI strips down when logging fast) | Tier 6 |
 | — | Ghost pace line (dotted line showing last session pace) | Tier 6 |
 | — | Smart next suggestion + recovery banner | Tier 4 |
+| 4.1 | Exercise tray (grid icon) — all exercises fan out as mini cards | Tier 4 |
+| 4.2 | "Later" button — push exercise to end of queue | Tier 4 |
+| 4.3 | "Drop" button — context-aware warning on remove | Tier 4 |
+| 4.6 | First session tooltips for new exercise flexibility UI | Tier 4 |
+| 6.4 | Momentum meter — builds with sets, decays during rest | Tier 6 |
+| 2.2 | Mixed plan templates — 12 cross-type templates in quickStartTemplates.ts | Tier 2 |
+| 2.3 | Category dots on exercise rows — discipline color dots + body segment accent bars | Tier 2 |
+| 6.7 | Workout page muscle browser — MusclePickerModal with SVG body diagram | Tier 6 |
+| 1.5 | Unified debrief scroll — category section headers in exercise list | Tier 1 |
+| 1.6 | Unified `MAX_SESSIONS_PER_DAY` enforcement across all types | Tier 1 |
+| 2.1 | Category picker in exercise browser — color-coded cards as entry point | Tier 2 |
+| 2.4 | Time estimate per plan (MA sessions show suggestedMin) | Tier 2 |
+| 2.6 | Stacked day cards with category labels + total time | Tier 2 |
+| 3.3 | MA hub dashboard — training distribution + per-discipline stats | Tier 3 |
+| 3.4 | Module-filtered stats — discipline-scoped gym sets from exercise_set_logs | Tier 3 |
+| 5.1 | Type-aware card system — mixed-type summary pills in active session | Tier 5 |
+| 5.2 | Quick-add presets by category in no-plan state | Tier 5 |
+| 5.4 | Unified energy receipt with category breakdown timeline | Tier 5 |
 
 ---
 
-## REMAINING (19 items)
+## REMAINING (1 item — deferred)
 
 ### Tier 1 — Unified Session Engine
 
 | # | Item | Notes |
 |---|------|-------|
-| 1.4 | Remove MA session tables dependency — `workout_sessions` becomes only session table | MA still uses separate `ma_sessions` table |
-| 1.5 | Unified debrief scroll — all exercise types in one scroll with category indicators | |
-| 1.6 | Unified `MAX_SESSIONS_PER_DAY` enforcement across all types | |
-
-### Tier 2 — Schedule + Discovery UX
-
-| # | Item | Notes |
-|---|------|-------|
-| 2.1 | Category picker in exercise browser — color-coded cards as entry point | |
-| 2.2 | Mixed plan templates — 10-15 cross-type templates | |
-| 2.3 | Category dots on exercise rows — colored indicator in schedule editor + session UI | |
-| 2.4 | Time estimate per plan | |
-| 2.6 | Stacked day cards — combined card with category labels | |
-
-### Tier 3 — Module Quick-Launch + Hub Pages
-
-| # | Item | Notes |
-|---|------|-------|
-| 3.3 | MA page → discipline hub dashboard (replace session runner with stats) | |
-| 3.4 | Module-filtered stats — discipline-scoped stats from unified exercise_set_logs | |
-
-### Tier 4 — Exercise Flexibility
-
-| # | Item | Notes |
-|---|------|-------|
-| 4.1 | Exercise tray (grid icon) — all exercises fan out as mini cards | |
-| 4.2 | "Later" button — push exercise to end of queue | |
-| 4.3 | "Drop" button — context-aware warning on remove | |
-| 4.6 | First session tooltips for new exercise flexibility UI | |
-
-### Tier 5 — Universal Activity Cards
-
-| # | Item | Notes |
-|---|------|-------|
-| 5.1 | Type-aware card system — carousel supports gym/MA/cardio/mobility/calisthenics | |
-| 5.2 | Quick-add presets by category | |
-| 5.4 | Unified energy receipt with category breakdown timeline | |
-
-### Tier 6 — Intelligence + Adaptive UI
-
-| # | Item | Notes |
-|---|------|-------|
-| 6.4 | Momentum meter — builds with sets, decays during rest | |
-| 6.7 | Workout page muscle browser — tap muscle → filter exercises | |
+| 1.4 | Remove MA session tables dependency — `workout_sessions` becomes only session table | **DEFERRED** — requires major DB migration + code refactor, high breakage risk |
 
 ---
 
@@ -142,4 +117,4 @@
 
 ---
 
-**Summary: 37 done, 19 remaining across 6 tiers. Backlogged: voice logging, shake to log, sharing, exercise images, and 11 more (see memory/project_backlog_remaining.md).**
+**Summary: 53 done, 1 deferred (1.4 — DB unification, too risky). Backlogged: voice logging, shake to log, sharing, exercise images, and 11 more (see memory/project_backlog_remaining.md).**

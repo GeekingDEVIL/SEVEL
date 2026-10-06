@@ -363,6 +363,7 @@ function HubView({ userId, onSelectDiscipline, onOpenLibrary, onStartLesson, onC
   const [recentSessions, setRecentSessions] = useState<any[]>([]);
   const [disciplineStats, setDisciplineStats] = useState<Record<string, { sessions: number; hours: number }>>({});
   const [disciplineStreaks, setDisciplineStreaks] = useState<Record<string, number>>({});
+  const [gymDiscStats, setGymDiscStats] = useState<Record<string, { exercises: number; sets: number }>>({});
   const [activeDiscipline, setActiveDiscipline] = useState<string | null>(null);
   const [nextLesson, setNextLesson] = useState<{ lesson: Lesson; discipline: Discipline; levelTitle: string } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -373,8 +374,20 @@ function HubView({ userId, onSelectDiscipline, onOpenLibrary, onStartLesson, onC
       supabase.from("ma_sessions").select("*").eq("user_id", userId).order("date", { ascending: false }).limit(10),
       supabase.from("ma_sessions").select("discipline, duration_seconds, date").eq("user_id", userId).eq("status", "completed"),
       supabase.from("ma_user_lessons").select("lesson_id, completed_at, ma_lessons!inner(discipline)").eq("user_id", userId),
-    ]).then(async ([sessionsRes, statsRes, lessonProgressRes]) => {
+      supabase.from("exercise_set_logs").select("exercise_id, exercises!inner(discipline)").eq("user_id", userId).eq("completed", true).not("exercises.discipline", "in", '("strength","")').not("exercises.discipline", "is", "null"),
+    ]).then(async ([sessionsRes, statsRes, lessonProgressRes, gymDiscRes]) => {
       setRecentSessions(sessionsRes.data ?? []);
+      const gds: Record<string, { exercises: Set<string>; sets: number }> = {};
+      for (const row of (gymDiscRes.data ?? []) as any[]) {
+        const disc = row.exercises?.discipline;
+        if (!disc) continue;
+        if (!gds[disc]) gds[disc] = { exercises: new Set(), sets: 0 };
+        gds[disc].exercises.add(row.exercise_id);
+        gds[disc].sets++;
+      }
+      const gdsFlat: Record<string, { exercises: number; sets: number }> = {};
+      for (const [d, v] of Object.entries(gds)) gdsFlat[d] = { exercises: v.exercises.size, sets: v.sets };
+      setGymDiscStats(gdsFlat);
       const stats: Record<string, { sessions: number; hours: number }> = {};
       const datesByDisc: Record<string, string[]> = {};
       for (const s of statsRes.data ?? []) {
@@ -575,6 +588,41 @@ function HubView({ userId, onSelectDiscipline, onOpenLibrary, onStartLesson, onC
         </div>
       )}
 
+      {/* Training distribution breakdown (3.3 + 3.4) */}
+      {totalSessions > 0 && (() => {
+        const entries = Object.entries(disciplineStats).sort((a, b) => b[1].sessions - a[1].sessions);
+        if (entries.length < 2) return null;
+        return (
+          <div className="rounded-2xl border p-4 space-y-3" style={{ borderColor: "var(--fg-06)", background: "var(--fg-03)" }}>
+            <p className="text-[8px] font-mono tracking-widest" style={{ color: "var(--fg-20)" }}>TRAINING DISTRIBUTION</p>
+            <div className="flex gap-1 h-3 rounded-full overflow-hidden" style={{ background: "var(--fg-04)" }}>
+              {entries.map(([dId, st]) => {
+                const d = OLD_DISCIPLINES[dId as DisciplineId];
+                return <div key={dId} style={{ flex: st.sessions / totalSessions, background: d ? `rgb(${d.colorRgb})` : "var(--fg-20)", borderRadius: 2, minWidth: 3 }} />;
+              })}
+            </div>
+            <div className="space-y-2">
+              {entries.map(([dId, st]) => {
+                const d = OLD_DISCIPLINES[dId as DisciplineId];
+                const cRgb = d?.colorRgb ?? "100 100 100";
+                const gymSt = gymDiscStats[dId];
+                return (
+                  <div key={dId} className="flex items-center gap-2.5">
+                    <div className="w-2 h-2 rounded-full shrink-0" style={{ background: `rgb(${cRgb})` }} />
+                    <span className="text-[11px] font-medium flex-1 min-w-0 truncate" style={{ color: "var(--fg-70)" }}>{d?.name ?? dId}</span>
+                    <div className="flex items-center gap-3 text-[9px] font-mono" style={{ color: "var(--fg-35)" }}>
+                      <span>{st.sessions}s</span>
+                      <span>{st.hours.toFixed(1)}h</span>
+                      {gymSt && <span style={{ color: `rgb(${cRgb} / 0.7)` }}>{gymSt.sets} gym sets</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Cross-discipline achievements (item 79) */}
       {(() => {
         const trainedDiscs = Object.keys(disciplineStats);
@@ -663,7 +711,7 @@ function HubView({ userId, onSelectDiscipline, onOpenLibrary, onStartLesson, onC
                     <div className="flex items-center gap-1.5">
                       {stats && stats.sessions > 0 && (
                         <span className="text-[8px] font-mono px-2 py-0.5 rounded-full bg-white/10 text-white/70 backdrop-blur-sm">
-                          {stats.sessions} sessions
+                          {stats.sessions}s · {stats.hours.toFixed(1)}h{gymDiscStats[dId] ? ` · ${gymDiscStats[dId].sets} gym` : ""}
                         </span>
                       )}
                       {isActive ? (
