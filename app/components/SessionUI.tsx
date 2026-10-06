@@ -111,6 +111,11 @@ export function SwipeSet({ completed, onComplete, children }: { completed: boole
                     {pastThreshold ? "RELEASE TO LOG" : "SWIPE TO LOG →"}
                 </span>
             </div>
+            {dragX <= 4 && (
+                <div className="absolute left-0 top-0 bottom-0 w-5 flex items-center justify-center pointer-events-none z-10">
+                    <ChevronRight size={10} className="text-[var(--fg-10)] animate-[nudgeRight_2s_ease-in-out_infinite]" />
+                </div>
+            )}
             <div {...handlers} style={{ transform: `translateX(${dragX}px)`, transition: swiping ? "none" : "transform 0.2s ease" }}>
                 {children}
             </div>

@@ -128,6 +128,8 @@ function MaPreviewFigures({ discipline, colorRgb }: { discipline: string; colorR
 // Types
 // ═══════════════════════════════════════════════════════════════
 
+const MAX_SESSIONS_PER_DAY = 3;
+
 type LocalExercise = {
     id: string; isNew: boolean; exercise_id: string; name: string;
     body_segment: string; isCardio: boolean; equipment: string;
@@ -577,6 +579,12 @@ function DayEditorModal({
 
     async function handleSave() {
         if (!user) return;
+        const existingCount = (allPlans[weekday] ?? []).filter(p => !p.is_rest).length;
+        const isReplacing = (allPlans[weekday] ?? []).some(p => p.session_type === (isRest ? "rest" : planMode));
+        if (!isRest && !isReplacing && existingCount >= MAX_SESSIONS_PER_DAY) {
+            alert(`Maximum ${MAX_SESSIONS_PER_DAY} sessions per day.`);
+            return;
+        }
         setSaving(true);
 
         if (isRest) {
@@ -983,6 +991,7 @@ export default function SchedulePage() {
     const prevVolRef = useRef(0);
     const [lastDelta, setLastDelta] = useState(0);
     const [rpePrompt, setRpePrompt] = useState<{ exId: string; setIdx: number } | null>(null);
+    const [noteExpandedSet, setNoteExpandedSet] = useState<string | null>(null);
     const rpeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [detailExercise, setDetailExercise] = useState<WorkoutExercise | null>(null);
     const [formCheckExercise, setFormCheckExercise] = useState<string | null>(null);
@@ -1357,7 +1366,6 @@ export default function SchedulePage() {
     function showRpePromptFn(exId: string, setIdx: number) {
         if (rpeTimerRef.current) clearTimeout(rpeTimerRef.current);
         setRpePrompt({ exId, setIdx });
-        rpeTimerRef.current = setTimeout(() => setRpePrompt(null), 3000);
     }
     function handleRpe(rpe: number) {
         if (!rpePrompt) return;
@@ -1374,9 +1382,12 @@ export default function SchedulePage() {
         }
         const set = w.logs[ex.id]?.find((s) => s.index === idx);
         w.completeSet(ex, idx, overrides);
-        setFocusedField(null);
-        if (!isQuickLog && !set?.is_warmup && set?.set_type !== "drop") {
-            showRpePromptFn(ex.id, idx);
+        const sets = w.logs[ex.id] || [];
+        const nextSet = sets.find((s) => s.index > idx && !s.completed);
+        if (nextSet) {
+            setFocusedField(`${ex.id}-${nextSet.index}-w`);
+        } else {
+            setFocusedField(null);
         }
         const loggedWeight = overrides?.weight ?? set?.weight ?? "";
         const loggedReps = Number(overrides?.reps ?? set?.reps ?? 0);
@@ -1439,7 +1450,7 @@ export default function SchedulePage() {
                 session_type: p.session_type === "ma" ? "ma" : "gym",
                 ma_discipline: p.ma_discipline as DisciplineId | null,
                 ma_session_type: p.ma_session_type as SessionType | null,
-                estimated_minutes: p.template_id ? (minutesByTemplate[p.template_id] ?? 0) : 0,
+                estimated_minutes: p.template_id ? (minutesByTemplate[p.template_id] ?? 0) : (p.session_type === "ma" && p.ma_session_type && SESSION_TYPE_LABELS[p.ma_session_type as SessionType] ? SESSION_TYPE_LABELS[p.ma_session_type as SessionType].suggestedMin : 0),
             };
             if (!map[p.weekday]) map[p.weekday] = [];
             map[p.weekday].push(entry);
@@ -2688,6 +2699,28 @@ export default function SchedulePage() {
                 {gymSessionReady && showExerciseList && (
                     <div className="space-y-2">
 
+                        {/* Type-aware session summary (5.1) */}
+                        {w.status === "active" && (() => {
+                            const types = new Map<string, number>();
+                            w.exercisesList.forEach(ex => {
+                                const t = ex.discipline && ex.discipline !== "strength" ? ex.discipline : ex.body_segment === "Cardio" ? "cardio" : "gym";
+                                types.set(t, (types.get(t) ?? 0) + 1);
+                            });
+                            if (types.size <= 1) return null;
+                            return (
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                    {Array.from(types.entries()).map(([t, count]) => {
+                                        const dc = DISCIPLINE_COLORS[t];
+                                        return (
+                                            <span key={t} className="text-[8px] font-mono font-bold tracking-wider px-2 py-0.5 rounded-full border" style={{ color: dc || "rgb(var(--accent-light-rgb))", borderColor: dc ? `${dc}40` : "rgb(var(--accent-rgb) / 0.2)", background: dc ? `${dc}12` : "rgb(var(--accent-rgb) / 0.06)" }}>
+                                                {t === "gym" ? "GYM" : t === "cardio" ? "CARDIO" : (DISCIPLINE_COLORS[t] ? t.toUpperCase().replace("_", " ").slice(0, 8) : t.toUpperCase())} ×{count}
+                                            </span>
+                                        );
+                                    })}
+                                </div>
+                            );
+                        })()}
+
                         {(w.status === "active" ? sortedExercises : w.exercisesList).map((ex, i) => {
                             const sets = w.logs[ex.id] ?? [];
                             const workingSetsOnly = sets.filter((s) => !s.is_warmup);
@@ -3084,7 +3117,6 @@ export default function SchedulePage() {
                                                                 )}
                                                                 <div className="flex-1 min-w-0">
                                                                 {s.completed && !isWarmup ? (
-                                                                    <div>
                                                                     <button onClick={() => !isDeleting && w.editSet(ex.id, s.index)} className={`w-full flex items-center gap-1.5 sm:gap-2 group rounded-lg py-1.5 px-1 relative overflow-visible hover:brightness-110 active:scale-[0.99] transition ${pulse ? "animate-[perfPulse_0.6s_ease-out]" : ""}`}>
                                                                         <div className="absolute left-0 top-1 bottom-1 w-[2px] rounded-full transition-colors" style={{ background: pulse ? `rgb(${PULSE_COLORS[pulse]} / 0.7)` : "rgb(var(--accent-rgb) / 0.5)" }} />
                                                                         <div className="w-6 sm:w-7 h-6 sm:h-7 shrink-0 rounded-full flex items-center justify-center text-[10px] font-mono font-bold" style={{ background: "rgb(var(--accent-rgb) / 0.15)", color: "rgb(var(--accent-light-rgb))" }}>{displayNum}</div>
@@ -3098,21 +3130,13 @@ export default function SchedulePage() {
                                                                             <span className="text-[var(--fg-80)]">{s.reps}</span>
                                                                             {ex.isBodyweight && <span className="text-[10px] font-mono text-[var(--fg-30)] ml-1">reps</span>}
                                                                         </div>
-                                                                        <Pencil size={12} className="shrink-0 text-[var(--fg-15)] group-hover:text-[rgb(var(--accent-light-rgb))] transition w-9 sm:w-11" />
+                                                                        {e1rm > 0 && <span className={`shrink-0 text-[8px] font-mono font-bold px-1.5 py-0.5 rounded-full ${pulse === "stronger" ? "text-emerald-400/70" : pulse === "weaker" ? "text-red-400/60" : "text-[var(--fg-25)]"}`}>{Math.round(e1rm)}{pulse === "stronger" ? "▲" : pulse === "weaker" ? "▼" : ""}</span>}
+                                                                        {!s.rpe ? (
+                                                                            <span onClick={(e) => { e.stopPropagation(); setRpePrompt({ exId: ex.id, setIdx: s.index }); }} className="shrink-0 text-[8px] font-mono px-1.5 py-0.5 rounded-full border border-[var(--fg-08)] text-[var(--fg-20)] hover:text-[var(--fg-40)] hover:border-[var(--fg-15)] transition">RPE</span>
+                                                                        ) : (
+                                                                            <span onClick={(e) => { e.stopPropagation(); setRpePrompt({ exId: ex.id, setIdx: s.index }); }} className={`shrink-0 text-[8px] font-mono px-1.5 py-0.5 rounded-full border cursor-pointer ${s.rpe <= 7 ? "border-emerald-500/15 text-emerald-400/50 bg-emerald-500/[0.04]" : s.rpe <= 8 ? "border-amber-500/15 text-amber-400/50 bg-amber-500/[0.04]" : "border-red-500/15 text-red-400/50 bg-red-500/[0.04]"}`}>{s.rpe}</span>
+                                                                        )}
                                                                     </button>
-                                                                    {(e1rm > 0 || pulse) && (
-                                                                        <div className="flex items-center gap-1.5 ml-7 sm:ml-8 mt-1 mb-0.5">
-                                                                            {e1rm > 0 && (
-                                                                                <span className={`inline-flex items-center gap-1 text-[9px] font-mono font-bold px-2 py-0.5 rounded-full ${pulse === "stronger" ? "bg-emerald-400/10 border border-emerald-400/20 text-emerald-400/80" : pulse === "weaker" ? "bg-red-400/10 border border-red-400/20 text-red-400/70" : pulse === "matching" ? "bg-amber-400/10 border border-amber-400/20 text-amber-400/70" : "bg-[rgb(var(--accent-rgb)/0.08)] border border-[rgb(var(--accent-rgb)/0.15)] text-[rgb(var(--accent-rgb)/0.7)]"}`}>
-                                                                                    e1RM {Math.round(e1rm)}{w.weightUnit}
-                                                                                    {pulse === "stronger" && <span>▲</span>}
-                                                                                    {pulse === "weaker" && <span>▼</span>}
-                                                                                    {pulse === "matching" && <span>=</span>}
-                                                                                </span>
-                                                                            )}
-                                                                        </div>
-                                                                    )}
-                                                                    </div>
                                                                 ) : s.completed && isWarmup ? (
                                                                     <div className="flex items-center gap-1.5 sm:gap-2 opacity-50">
                                                                         <span className="text-[10px] font-mono w-6 sm:w-7 text-center shrink-0 text-amber-400/50">{displayNum}</span>
@@ -3121,6 +3145,39 @@ export default function SchedulePage() {
                                                                         <div className="w-9 h-9 sm:w-11 sm:h-11 shrink-0 rounded-lg border border-amber-400/30 bg-amber-400/10 flex items-center justify-center text-amber-400"><Check size={14} /></div>
                                                                     </div>
                                                                 ) : (
+                                                                <>
+                                                                {showQuickLog && !userTyped && editingExId !== ex.id && (hasPrediction || hasPrevData || (lastCompleted && workingIdx > 0)) && (
+                                                                    <div className="space-y-1 mb-1.5">
+                                                                        {hasPrediction && (
+                                                                            <button onClick={() => zeroCeremonyComplete(ex, s.index, { weight: predW, reps: predR }, true)}
+                                                                                className="w-full flex items-center justify-between gap-2 py-2 px-3 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-400/90 hover:bg-emerald-500/[0.12] active:scale-[0.98] transition">
+                                                                                <span className="text-[11px] font-mono font-medium flex items-center gap-1.5">
+                                                                                    <TrendingUp size={12} />
+                                                                                    {!ex.isBodyweight ? `${predW}${w.weightUnit} × ` : ""}{predR}
+                                                                                    <span className="text-[9px] text-emerald-400/50">predicted</span>
+                                                                                </span>
+                                                                                <Check size={12} className="opacity-40" />
+                                                                            </button>
+                                                                        )}
+                                                                        {hasPrevData && !hasPrediction && (
+                                                                            <button onClick={() => zeroCeremonyComplete(ex, s.index)}
+                                                                                className="w-full flex items-center justify-between gap-2 py-2 px-3 rounded-lg border border-[rgb(var(--accent-rgb)/0.15)] bg-[rgb(var(--accent-rgb)/0.04)] text-[var(--fg-60)] hover:bg-[rgb(var(--accent-rgb)/0.08)] active:scale-[0.98] transition">
+                                                                                <span className="text-[11px] font-mono font-medium flex items-center gap-1.5">
+                                                                                    <Check size={12} className="text-[rgb(var(--accent-rgb)/0.5)]" />
+                                                                                    Log {prevW}{w.weightUnit} × {prevR}
+                                                                                    <span className="text-[9px] text-[var(--fg-25)]">{ghostSet ? `(last ${todayName.slice(0,3)})` : "last"}</span>
+                                                                                </span>
+                                                                            </button>
+                                                                        )}
+                                                                        {lastCompleted && workingIdx > 0 && (
+                                                                            <button onClick={() => zeroCeremonyComplete(ex, s.index, { weight: lastCompleted.weight, reps: lastCompleted.reps })}
+                                                                                className="w-full flex items-center justify-between gap-2 py-1.5 px-3 rounded-lg border border-[var(--fg-08)] bg-[var(--fg-03)] text-[var(--fg-50)] hover:bg-[var(--fg-06)] active:scale-[0.98] transition">
+                                                                                <span className="text-[10px] font-mono font-medium flex items-center gap-1.5"><RefreshCw size={10} className="opacity-40" />Repeat {!ex.isBodyweight ? `${lastCompleted.weight}${w.weightUnit} × ` : ""}{lastCompleted.reps}</span>
+                                                                                <Check size={12} className="opacity-30" />
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                )}
                                                                 <SwipeSet completed={false} onComplete={() => zeroCeremonyComplete(ex, s.index)}>
                                                                     {(() => {
                                                                         const fieldKey = `${ex.id}-${s.index}`;
@@ -3175,6 +3232,7 @@ export default function SchedulePage() {
                                                                         );
                                                                     })()}
                                                                 </SwipeSet>
+                                                                </>
                                                                 )}
                                                                 </div>
                                                             </div>
@@ -3184,61 +3242,29 @@ export default function SchedulePage() {
                                                                     <PlateMath totalWeight={Number(s.weight) || Number(prevW)} unit={w.weightUnit as "kg" | "lb"} perSide={dualWt} />
                                                                 </div>
                                                             )}
-                                                            {rpePrompt?.exId === ex.id && rpePrompt.setIdx === s.index && s.completed && !isWarmup && (
+                                                            {rpePrompt?.exId === ex.id && rpePrompt.setIdx === s.index && !isWarmup && (
                                                                 <div className="flex items-center gap-1 ml-7 sm:ml-8 mt-1 animate-[fadeInUp_0.15s_ease]">
                                                                     <span className="text-[8px] font-mono text-[var(--fg-20)] mr-1">RPE</span>
                                                                     {[6, 7, 8, 9, 10].map((v) => (
                                                                         <button key={v} onClick={() => handleRpe(v)} className={`w-7 h-7 rounded-full text-[10px] font-mono font-bold border transition active:scale-90 ${v <= 7 ? "border-emerald-500/20 text-emerald-400/70 hover:bg-emerald-500/10" : v <= 8 ? "border-amber-500/20 text-amber-400/70 hover:bg-amber-500/10" : "border-red-500/20 text-red-400/70 hover:bg-red-500/10"}`}>{v}</button>
                                                                     ))}
+                                                                    <button onClick={() => setRpePrompt(null)} className="w-7 h-7 rounded-full text-[10px] font-mono border border-[var(--fg-08)] text-[var(--fg-20)] hover:bg-[var(--fg-06)] transition active:scale-90">✕</button>
                                                                 </div>
                                                             )}
-                                                            {s.completed && !isWarmup && s.rpe && !(rpePrompt?.exId === ex.id && rpePrompt.setIdx === s.index) && (
-                                                                <div className="ml-7 sm:ml-8 mt-0.5">
-                                                                    <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded-full border ${s.rpe <= 7 ? "border-emerald-500/15 text-emerald-400/50 bg-emerald-500/[0.04]" : s.rpe <= 8 ? "border-amber-500/15 text-amber-400/50 bg-amber-500/[0.04]" : "border-red-500/15 text-red-400/50 bg-red-500/[0.04]"}`}>RPE {s.rpe}</span>
-                                                                </div>
-                                                            )}
-                                                            {showQuickLog && editingExId !== ex.id && (
-                                                                <div className="mt-1.5 ml-7 sm:ml-8 space-y-1.5" style={{ width: "calc(100% - 32px)" }}>
-                                                                    {hasPrediction && !userTyped && (
-                                                                        <button onClick={() => zeroCeremonyComplete(ex, s.index, { weight: predW, reps: predR }, true)}
-                                                                            className="w-full flex items-center justify-between gap-2 py-2.5 px-3 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-400/90 hover:bg-emerald-500/[0.12] active:scale-[0.98] transition">
-                                                                            <span className="text-[11px] font-mono font-medium flex items-center gap-1.5">
-                                                                                <TrendingUp size={12} />
-                                                                                {!ex.isBodyweight ? `${predW}${w.weightUnit} × ` : ""}{predR}
-                                                                                <span className="text-[9px] text-emerald-400/50">predicted</span>
-                                                                            </span>
-                                                                            <Check size={12} className="opacity-40" />
-                                                                        </button>
+                                                            {showQuickLog && !s.completed && editingExId !== ex.id && (
+                                                                <div className="flex items-center gap-2 mt-1 ml-7 sm:ml-8">
+                                                                    {s.note || noteExpandedSet === `${ex.id}-${s.index}` ? (
+                                                                        <input type="text" value={s.note} onChange={(e) => w.updateSet(ex.id, s.index, "note", e.target.value)} placeholder="Note..."
+                                                                            autoFocus={noteExpandedSet === `${ex.id}-${s.index}` && !s.note}
+                                                                            onBlur={() => { if (!s.note) setNoteExpandedSet(null); }}
+                                                                            className="flex-1 text-[10px] font-mono rounded-md bg-transparent border border-[var(--fg-06)] px-2 py-1 text-[var(--fg-30)] placeholder:text-[var(--fg-15)] focus:outline-none focus:border-[rgb(var(--accent-rgb)/0.2)] transition" />
+                                                                    ) : (
+                                                                        <button onClick={() => setNoteExpandedSet(`${ex.id}-${s.index}`)} className="text-[9px] font-mono text-[var(--fg-15)] hover:text-[var(--fg-30)] transition">+ note</button>
                                                                     )}
-                                                                    {hasPrevData && !userTyped && (
-                                                                        <button onClick={() => zeroCeremonyComplete(ex, s.index)}
-                                                                            className="w-full flex items-center justify-between gap-2 py-2.5 px-3 rounded-lg border border-[rgb(var(--accent-rgb)/0.15)] bg-[rgb(var(--accent-rgb)/0.04)] text-[var(--fg-60)] hover:bg-[rgb(var(--accent-rgb)/0.08)] active:scale-[0.98] transition">
-                                                                            <span className="text-[11px] font-mono font-medium flex items-center gap-1.5">
-                                                                                <Check size={12} className="text-[rgb(var(--accent-rgb)/0.5)]" />
-                                                                                Log {prevW}{w.weightUnit} × {prevR}
-                                                                                <span className="text-[9px] text-[var(--fg-25)]">{ghostSet ? `(last ${todayName.slice(0,3)})` : "from last session"}</span>
-                                                                            </span>
-                                                                        </button>
-                                                                    )}
-                                                                    {lastCompleted && workingIdx > 0 && !userTyped && (
-                                                                        <button onClick={() => zeroCeremonyComplete(ex, s.index, { weight: lastCompleted.weight, reps: lastCompleted.reps })}
-                                                                            className="w-full flex items-center justify-between gap-2 py-2 px-3 rounded-lg border border-[var(--fg-08)] bg-[var(--fg-03)] text-[var(--fg-50)] hover:text-[var(--fg-80)] hover:bg-[var(--fg-06)] active:scale-[0.98] transition">
-                                                                            <span className="text-[11px] font-mono font-medium flex items-center gap-1.5"><RefreshCw size={10} className="opacity-40" />Repeat — {!ex.isBodyweight ? `${lastCompleted.weight}${w.weightUnit} × ` : ""}{lastCompleted.reps}</span>
-                                                                            <Check size={12} className="opacity-30" />
-                                                                        </button>
-                                                                    )}
-                                                                    <input type="text" value={s.note} onChange={(e) => w.updateSet(ex.id, s.index, "note", e.target.value)} placeholder="Note (optional)"
-                                                                        className="w-full text-[10px] font-mono rounded-md bg-transparent border border-[var(--fg-04)] px-2 py-1 text-[var(--fg-30)] placeholder:text-[var(--fg-15)] focus:outline-none focus:border-[rgb(var(--accent-rgb)/0.2)] focus:text-[var(--fg-50)] transition" />
-                                                                    {/* 6.2 Form cue */}
                                                                     {!inFlowState && workingIdx >= 0 && (() => {
                                                                         const cues = FORM_CUES[ex.body_segment] || FORM_CUES.Other;
                                                                         const cue = cues[workingIdx % cues.length];
-                                                                        const isHighSet = workingIdx >= 3;
-                                                                        return (
-                                                                            <p className={`text-[8px] font-mono mt-1 ${isHighSet ? "text-amber-400/50" : "text-[var(--fg-15)]"}`}>
-                                                                                {isHighSet ? "⚡ " : "💡 "}{cue}{isHighSet ? " — fatigue zone, stay tight" : ""}
-                                                                            </p>
-                                                                        );
+                                                                        return <span className={`text-[8px] font-mono shrink-0 ${workingIdx >= 3 ? "text-amber-400/40" : "text-[var(--fg-12)]"}`}>{workingIdx >= 3 ? "⚡" : "💡"} {cue.length > 25 ? cue.slice(0, 25) + "…" : cue}</span>;
                                                                     })()}
                                                                 </div>
                                                             )}
@@ -3448,6 +3474,23 @@ export default function SchedulePage() {
                                     <Plus size={12} /> Add {new Date().toLocaleDateString(undefined, { weekday: "long" })} to Schedule
                                 </button>
                             )}
+                            {/* Quick-add presets by category (5.2) */}
+                            <div className="grid grid-cols-3 gap-1.5 mt-3">
+                                {[
+                                    { label: "Push", emoji: "🏋️", seg: "Chest" },
+                                    { label: "Pull", emoji: "🔙", seg: "Back" },
+                                    { label: "Legs", emoji: "🦵", seg: "Legs" },
+                                    { label: "Arms", emoji: "💪", seg: "Biceps" },
+                                    { label: "Core", emoji: "🎯", seg: "Core" },
+                                    { label: "Cardio", emoji: "🏃", seg: "Cardio" },
+                                ].map(p => (
+                                    <button key={p.label} onClick={() => { w.setStatus("freestyle"); setShowDatabase(true); }}
+                                        className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-[var(--fg-06)] bg-[var(--fg-02)] text-left hover:border-[var(--fg-12)] active:scale-95 transition">
+                                        <span className="text-xs">{p.emoji}</span>
+                                        <span className="text-[10px] font-medium text-[var(--fg-50)]">{p.label}</span>
+                                    </button>
+                                ))}
+                            </div>
                             <button onClick={() => setShowMusclePicker(true)} className="w-full flex items-center justify-center gap-1.5 text-[11px] font-mono text-[var(--fg-30)] hover:text-[var(--fg-60)] mt-1 py-2 transition">
                                 <Target size={12} /> Browse by Muscle
                             </button>
@@ -3512,15 +3555,28 @@ export default function SchedulePage() {
                                                             className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border transition active:scale-[0.99] ${completed ? "border-[rgb(var(--accent-rgb)/0.15)] bg-[rgb(var(--accent-rgb)/0.03)]" : "border-[var(--fg-06)] bg-[var(--fg-02)] hover:border-[var(--fg-10)]"}`}>
                                                             <span className="text-[11px] font-mono w-8 shrink-0 text-[var(--fg-40)]">{WEEKDAY_LABELS[wd]}</span>
                                                             <div className="flex-1 min-w-0 text-left">
-                                                                <p className="text-[12px] text-[var(--fg-50)] truncate">{dayPlans.filter(p => !p.is_rest).map(p => p.template_name || "Training").join(" + ") || "Rest"}</p>
-                                                                {/* Mini muscle dots per day (#14) */}
-                                                                {dayPlans.some(p => !p.is_rest && p.muscles.length > 0) && (
-                                                                    <div className="flex items-center gap-1 mt-0.5">
-                                                                        {dayPlans.filter(p => !p.is_rest).flatMap(p => p.muscles).slice(0, 4).map((m, mi) => (
-                                                                            <div key={mi} className="w-1.5 h-1.5 rounded-full" style={{ background: `rgb(${MUSCLE_COLORS[m] || MUSCLE_COLORS.Other} / 0.6)` }} />
-                                                                        ))}
-                                                                    </div>
-                                                                )}
+                                                                <p className="text-[12px] text-[var(--fg-50)] truncate">{dayPlans.filter(p => !p.is_rest).map(p => {
+                                                                    if (p.session_type === "ma" && p.ma_discipline && DISCIPLINES[p.ma_discipline]) return DISCIPLINES[p.ma_discipline].name;
+                                                                    return p.template_name || "Training";
+                                                                }).join(" + ") || "Rest"}</p>
+                                                                {/* Stacked category labels (2.6) + muscle dots */}
+                                                                <div className="flex items-center gap-1 mt-0.5">
+                                                                    {dayPlans.filter(p => !p.is_rest).length > 1 && dayPlans.filter(p => !p.is_rest).map((p, pi) => {
+                                                                        const isMa = p.session_type === "ma" && p.ma_discipline;
+                                                                        const disc = isMa ? DISCIPLINES[p.ma_discipline!] : null;
+                                                                        return (
+                                                                            <span key={pi} className="text-[7px] font-mono font-bold tracking-wider px-1.5 py-0.5 rounded-full" style={{ color: isMa && disc ? `rgb(${disc.colorRgb})` : "rgb(var(--accent-light-rgb))", background: isMa && disc ? `rgb(${disc.colorRgb} / 0.12)` : "rgb(var(--accent-rgb) / 0.1)" }}>
+                                                                                {isMa && disc ? disc.name.slice(0, 6).toUpperCase() : "GYM"}
+                                                                            </span>
+                                                                        );
+                                                                    })}
+                                                                    {dayPlans.filter(p => !p.is_rest).flatMap(p => p.muscles).slice(0, 4).map((m, mi) => (
+                                                                        <div key={mi} className="w-1.5 h-1.5 rounded-full" style={{ background: `rgb(${MUSCLE_COLORS[m] || MUSCLE_COLORS.Other} / 0.6)` }} />
+                                                                    ))}
+                                                                    {dayPlans.filter(p => !p.is_rest).some(p => p.estimated_minutes > 0) && (
+                                                                        <span className="text-[8px] font-mono text-[var(--fg-20)] ml-auto">~{dayPlans.filter(p => !p.is_rest).reduce((s, p) => s + p.estimated_minutes, 0)}min</span>
+                                                                    )}
+                                                                </div>
                                                             </div>
                                                             {completed && (
                                                                 <div className="flex items-center gap-1.5 shrink-0">
@@ -3562,7 +3618,7 @@ export default function SchedulePage() {
                                                                             </div>
                                                                             {!plan.is_rest && (
                                                                             <div className="flex items-center gap-1.5 mt-0.5">
-                                                                                <p className="text-[9px] font-mono text-[var(--fg-25)]">{isMa && stLabel ? stLabel.name : plan.exercise_count > 0 ? `${plan.exercise_count} exercises${plan.estimated_minutes > 0 ? ` · ~${plan.estimated_minutes}min` : ""}` : ""}</p>
+                                                                                <p className="text-[9px] font-mono text-[var(--fg-25)]">{isMa && stLabel ? `${stLabel.name}${plan.estimated_minutes > 0 ? ` · ~${plan.estimated_minutes}min` : ""}` : plan.exercise_count > 0 ? `${plan.exercise_count} exercises${plan.estimated_minutes > 0 ? ` · ~${plan.estimated_minutes}min` : ""}` : ""}</p>
                                                                                 {/* Muscle dots in expanded view (#14) */}
                                                                                 {plan.muscles.length > 0 && (
                                                                                     <div className="flex items-center gap-0.5 ml-1">

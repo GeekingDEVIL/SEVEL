@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useCallback, useEffect } from "react";
+import { flushSync } from "react-dom";
 import { Minus, Plus } from "lucide-react";
 
 type StepperInputProps = {
@@ -79,12 +80,14 @@ export default function StepperInput({
     useEffect(() => () => stopLongPress(), [stopLongPress]);
 
     const startEdit = () => {
-        setEditing(true);
-        setEditText(value > 0 ? String(value) : "");
-        setTimeout(() => {
-            inputRef.current?.focus();
-            inputRef.current?.select();
-        }, 0);
+        onFocus?.();
+        const txt = value > 0 ? String(value) : "";
+        flushSync(() => {
+            setEditing(true);
+            setEditText(txt);
+        });
+        inputRef.current?.focus();
+        inputRef.current?.select();
     };
 
     const finishEdit = () => {
@@ -97,6 +100,12 @@ export default function StepperInput({
     };
 
     const displayValue = value > 0 ? (Number.isInteger(value) ? String(value) : value.toFixed(1)) : "";
+
+    const btnSize = compact ? 14 : 16;
+    const btnPad = compact ? "px-1.5" : "px-2.5";
+    const btnColor = focused
+        ? "text-[rgb(var(--accent-rgb))] hover:bg-[rgb(var(--accent-rgb)/0.08)]"
+        : "text-[var(--fg-20)] hover:bg-[var(--fg-06)]";
 
     if (editing) {
         return (
@@ -119,40 +128,23 @@ export default function StepperInput({
         );
     }
 
-    if (compact && !focused) {
-        return (
-            <button
-                onClick={() => onFocus?.()}
-                className={`${className} flex items-center justify-center gap-1`}
-            >
-                <span className={`text-lg font-bold font-mono leading-none ${displayValue ? "text-[var(--fg-80)]" : "text-[var(--fg-25)]"}`}>
-                    {displayValue || placeholder}
-                </span>
-                {suffix && (
-                    <span className="text-[9px] font-mono text-[var(--fg-25)]">{suffix}</span>
-                )}
-            </button>
-        );
-    }
-
     return (
         <div className={`${className} flex items-center`}>
             <button
-                onPointerDown={() => startLongPress(-1)}
+                onPointerDown={() => { onFocus?.(); startLongPress(-1); }}
                 onPointerUp={() => { stopLongPress(); if (!longPressActive.current) nudge(-1); }}
                 onPointerLeave={stopLongPress}
-                className="h-full px-2.5 flex items-center justify-center text-[rgb(var(--accent-rgb))] hover:bg-[rgb(var(--accent-rgb)/0.08)] active:scale-90 transition select-none touch-none rounded-l-lg"
-                aria-label={`Decrease`}
+                className={`h-full ${btnPad} flex items-center justify-center ${btnColor} active:scale-90 transition select-none touch-none rounded-l-lg`}
+                aria-label="Decrease"
             >
-                <Minus size={16} strokeWidth={2.5} />
+                <Minus size={btnSize} strokeWidth={2.5} />
             </button>
 
             <button
                 onClick={startEdit}
-                onDoubleClick={startEdit}
                 className="flex-1 h-full flex flex-col items-center justify-center min-w-0"
             >
-                <span className={`text-lg font-bold font-mono leading-none ${displayValue ? "text-[var(--fg-85)]" : "text-[var(--fg-25)]"}`}>
+                <span className={`${compact ? "text-base" : "text-lg"} font-bold font-mono leading-none ${displayValue ? "text-[var(--fg-85)]" : "text-[var(--fg-25)]"}`}>
                     {displayValue || placeholder}
                 </span>
                 {(suffix || label) && (
@@ -161,13 +153,13 @@ export default function StepperInput({
             </button>
 
             <button
-                onPointerDown={() => startLongPress(1)}
+                onPointerDown={() => { onFocus?.(); startLongPress(1); }}
                 onPointerUp={() => { stopLongPress(); if (!longPressActive.current) nudge(1); }}
                 onPointerLeave={stopLongPress}
-                className="h-full px-2.5 flex items-center justify-center text-[rgb(var(--accent-rgb))] hover:bg-[rgb(var(--accent-rgb)/0.08)] active:scale-90 transition select-none touch-none rounded-r-lg"
-                aria-label={`Increase`}
+                className={`h-full ${btnPad} flex items-center justify-center ${btnColor} active:scale-90 transition select-none touch-none rounded-r-lg`}
+                aria-label="Increase"
             >
-                <Plus size={16} strokeWidth={2.5} />
+                <Plus size={btnSize} strokeWidth={2.5} />
             </button>
         </div>
     );
