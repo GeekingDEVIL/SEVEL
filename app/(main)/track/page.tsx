@@ -185,6 +185,7 @@ function MiniBarChart({ data, color }: { data: number[]; color: string }) {
 // --- Intelligence Card ---
 
 function IntelligenceCard({ hub, router }: { hub: HubData; router: ReturnType<typeof useRouter> }) {
+  const wUnit = useUnits();
   let insightText: string | null = null;
   let subtext = "Updates weekly";
 
@@ -193,9 +194,9 @@ function IntelligenceCard({ hub, router }: { hub: HubData; router: ReturnType<ty
       ? Math.round(((hub.weeklyVolume - hub.lastWeekVolume) / hub.lastWeekVolume) * 100)
       : 0;
     if (hub.bodyWeightDelta > 0 && volChange > 10) {
-      insightText = `You've gained ${formatWeight(hub.bodyWeightDelta, "kg", 1)} but volume is up ${volChange}% — likely muscle growth. Keep pushing compounds this week.`;
+      insightText = `You've gained ${formatWeight(hub.bodyWeightDelta, wUnit, 1)} but volume is up ${volChange}% — likely muscle growth. Keep pushing compounds this week.`;
     } else if (hub.bodyWeightDelta < 0 && volChange >= 0) {
-      insightText = `Weight down ${formatWeight(Math.abs(hub.bodyWeightDelta), "kg", 1)} while maintaining volume — solid cut progress. Recovery is holding up well.`;
+      insightText = `Weight down ${formatWeight(Math.abs(hub.bodyWeightDelta), wUnit, 1)} while maintaining volume — solid cut progress. Recovery is holding up well.`;
     }
   }
 
