@@ -473,7 +473,7 @@ export default function StrengthPage() {
                                                                 ) : (
                                                                     <button onClick={() => { setEditingGoal(true); setGoalInput(goals[pr.exercise_id] ? String(goals[pr.exercise_id]) : ""); }} className="flex items-center gap-1.5">
                                                                         <Trophy size={12} className="text-[var(--fg-25)]" />
-                                                                        <span className="text-sm font-bold font-mono text-[var(--fg-80)]">{goals[pr.exercise_id] ? `${Math.round(kgToUnit(goals[pr.exercise_id], weightUnit) * 10) / 10}${weightUnit}` : "-- --"}</span>
+                                                                        <span className="text-sm font-bold font-mono text-[var(--fg-80)]">{goals[pr.exercise_id] ? `${Math.round(kgToUnit(goals[pr.exercise_id], weightUnit) * 10) / 10} ${weightUnit}` : "-- --"}</span>
                                                                     </button>
                                                                 )}
                                                             </div>
