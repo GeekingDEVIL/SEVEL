@@ -1495,7 +1495,7 @@ export function useWorkoutSession() {
     }
 
     function addRestTime(seconds: number) {
-        setRestRemaining((r) => (r !== null ? r + seconds : null));
+        setRestRemaining((r) => (r !== null ? Math.max(0, r + seconds) : null));
     }
 
     function dismissRestTimer() {

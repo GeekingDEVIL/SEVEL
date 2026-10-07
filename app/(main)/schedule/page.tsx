@@ -2465,9 +2465,9 @@ export default function SchedulePage() {
                         {ghostPace && ghostPace.lastSetsAtTime > 0 && (
                             <div className="flex items-center gap-1.5 text-[8px] font-mono text-[var(--fg-20)]">
                                 <span className="w-3 border-t border-dashed border-[var(--fg-15)]" />
-                                <span>Last pace: {ghostPace.lastSetsAtTime} sets</span>
+                                <span>Last pace: {ghostPace.lastSetsAtTime} sets ·</span>
                                 <span className={ghostPace.currentSets > ghostPace.lastSetsAtTime ? "text-emerald-400/60" : ghostPace.currentSets < ghostPace.lastSetsAtTime ? "text-red-400/50" : "text-[var(--fg-20)]"}>
-                                    {ghostPace.currentSets > ghostPace.lastSetsAtTime ? `+${ghostPace.currentSets - ghostPace.lastSetsAtTime} ahead` : ghostPace.currentSets < ghostPace.lastSetsAtTime ? `${ghostPace.lastSetsAtTime - ghostPace.currentSets} behind` : "on pace"}
+                                    {ghostPace.currentSets > ghostPace.lastSetsAtTime ? `${ghostPace.currentSets - ghostPace.lastSetsAtTime} ahead` : ghostPace.currentSets < ghostPace.lastSetsAtTime ? `${ghostPace.lastSetsAtTime - ghostPace.currentSets} behind` : "on pace"}
                                 </span>
                             </div>
                         )}
@@ -3746,12 +3746,13 @@ export default function SchedulePage() {
                                     </p>
                                 )}
                             </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                                <button onClick={() => w.addRestTime(15)} className="text-[10px] font-mono px-2.5 py-1.5 rounded-lg border border-[var(--fg-08)] text-[var(--fg-30)] hover:text-[var(--fg-60)] active:scale-95 transition">+15s</button>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                                <button onClick={() => w.addRestTime(-15)} className="text-[10px] font-mono px-2 py-1.5 rounded-lg border border-[var(--fg-08)] text-[var(--fg-30)] hover:text-[var(--fg-60)] active:scale-95 transition">−15</button>
+                                <button onClick={() => w.addRestTime(15)} className="text-[10px] font-mono px-2 py-1.5 rounded-lg border border-[var(--fg-08)] text-[var(--fg-30)] hover:text-[var(--fg-60)] active:scale-95 transition">+15</button>
                                 <button onClick={() => w.setRestPaused((p: boolean) => !p)} className="w-9 h-9 flex items-center justify-center rounded-full border border-[var(--fg-10)] text-[var(--fg-40)] hover:text-[var(--fg-70)] active:scale-95 transition">
                                     {w.restPaused ? <Play size={14} /> : <Pause size={14} />}
                                 </button>
-                                <button onClick={w.dismissRestTimer} className="text-[10px] font-mono px-2.5 py-1.5 rounded-lg border border-[var(--fg-08)] text-[var(--fg-30)] hover:text-[var(--fg-60)] active:scale-95 transition">Skip</button>
+                                <button onClick={w.dismissRestTimer} className="text-[10px] font-mono px-2 py-1.5 rounded-lg border border-[var(--fg-08)] text-[var(--fg-30)] hover:text-[var(--fg-60)] active:scale-95 transition">Skip</button>
                             </div>
                         </div>
                     </div>
@@ -3789,7 +3790,15 @@ export default function SchedulePage() {
             {/* Sticky action bar */}
             {w.status === "active" && w.restRemaining === null && (
                 <div className="fixed bottom-16 md:bottom-6 left-0 right-0 md:left-1/2 md:-translate-x-1/2 md:max-w-sm md:rounded-xl z-20">
-                    <div className="border-t md:border border-[var(--fg-06)] bg-[var(--bg-card)] backdrop-blur-xl px-5 py-3 md:rounded-xl flex items-center gap-2">
+                    <div className="border-t md:border border-[var(--fg-06)] bg-[var(--bg-card)] backdrop-blur-xl px-5 py-2 md:rounded-xl">
+                        {w.elapsed > 0 && !w.sessionPaused && (
+                            <div className="flex items-center justify-center gap-3 pb-1.5 mb-1.5 border-b border-[var(--fg-04)]">
+                                <span className="text-[9px] font-mono text-[var(--fg-25)] tabular-nums"><Clock size={9} className="inline mr-1 -mt-px" />{formatClock(w.elapsed)}</span>
+                                {w.sessionVolume > 0 && <span className="text-[9px] font-mono text-[var(--fg-25)]">·</span>}
+                                {w.sessionVolume > 0 && <span className="text-[9px] font-mono text-[var(--fg-25)] tabular-nums">{Math.round(kgToUnitW(w.sessionVolume, w.weightUnit)).toLocaleString()} {w.weightUnit}</span>}
+                            </div>
+                        )}
+                        <div className="flex items-center gap-2">
                         {!w.sessionPaused ? (
                             <>
                                 <button onClick={w.startManualRestTimer} className="text-[10px] font-mono font-medium py-3 px-3 rounded-xl border border-[var(--fg-08)] text-[var(--fg-40)] hover:text-[var(--fg-70)] transition"><Timer size={12} className="inline mr-1" />Rest</button>
@@ -3802,6 +3811,7 @@ export default function SchedulePage() {
                                 <button onClick={() => w.setSessionPaused(false)} className="flex-1 text-sm font-semibold py-3 rounded-xl bg-amber-500 text-black hover:brightness-110 transition flex items-center justify-center gap-2"><Play size={14} /> Resume Session</button>
                             </>
                         )}
+                        </div>
                     </div>
                 </div>
             )}
