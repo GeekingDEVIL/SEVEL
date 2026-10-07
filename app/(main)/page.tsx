@@ -115,6 +115,7 @@ export default function Dashboard() {
   const [recentPR, setRecentPR] = useState<{ exercise: string; detail: string } | null>(null);
   const [cyclePhase, setCyclePhase] = useState<{ phase: string; day: number; tip: string } | null>(null);
   const [hydrationMl, setHydrationMl] = useState<number | null>(null);
+  const [waterGoalMl, setWaterGoalMl] = useState(3000);
   const [habitStats, setHabitStats] = useState<{ completed: number; total: number; habits: { id: string; name: string; icon: string; done: boolean }[] } | null>(null);
   const [pendingHabits, setPendingHabits] = useState<{ id: string; name: string; icon: string }[]>([]);
   const [fatigueAlerts, setFatigueAlerts] = useState<FatigueAlert[]>([]);
@@ -682,6 +683,10 @@ export default function Dashboard() {
         if (!cancelled) {
           const total = (waterData ?? []).reduce((s: number, r: any) => s + r.amount_ml, 0);
           setHydrationMl(total);
+          try {
+            const stored = localStorage.getItem("sevel_water_goal_ml");
+            if (stored) setWaterGoalMl(Number(stored) || 3000);
+          } catch { /* ignore */ }
         }
       }
 
@@ -1027,12 +1032,12 @@ export default function Dashboard() {
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between">
                 <p className="text-[11px] font-mono text-[var(--fg-50)]">
-                  {(hydrationMl / 1000).toFixed(1)}L / 3L
+                  {(hydrationMl / 1000).toFixed(1)}L / {(waterGoalMl / 1000).toFixed(0)}L
                 </p>
-                <span className="text-[9px] font-mono text-[var(--fg-25)]">{Math.min(100, Math.round((hydrationMl / 3000) * 100))}%</span>
+                <span className="text-[9px] font-mono text-[var(--fg-25)]">{Math.min(100, Math.round((hydrationMl / waterGoalMl) * 100))}%</span>
               </div>
               <div className="h-1 rounded-full bg-[var(--fg-04)] overflow-hidden mt-1">
-                <div className="h-full rounded-full bg-blue-400/40" style={{ width: `${Math.min(100, (hydrationMl / 3000) * 100)}%` }} />
+                <div className="h-full rounded-full bg-blue-400/40" style={{ width: `${Math.min(100, (hydrationMl / waterGoalMl) * 100)}%` }} />
               </div>
             </div>
             <ChevronRight size={12} className="text-[var(--fg-15)] shrink-0" />
