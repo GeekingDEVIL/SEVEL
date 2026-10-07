@@ -292,7 +292,7 @@ export default function TrackHub() {
 
   const [hub, setHub] = useState<HubData | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const [waterToast, setWaterToast] = useState(false);
+  const [waterToast, setWaterToast] = useState<number | false>(false);
   const [weightInput, setWeightInput] = useState("");
   const [weightOpen, setWeightOpen] = useState(false);
   const [weightLogging, setWeightLogging] = useState(false);
@@ -728,7 +728,7 @@ export default function TrackHub() {
       amount_ml: amount,
       logged_at: new Date().toISOString(),
     });
-    setWaterToast(true);
+    setWaterToast(amount);
     setTimeout(() => setWaterToast(false), 2000);
     if (hub) {
       setHub({ ...hub, todayWater: hub.todayWater + amount });
@@ -1237,11 +1237,11 @@ export default function TrackHub() {
                     <span className="text-[10px] font-mono tracking-widest text-[var(--fg-25)]">SESSIONS</span>
                   </div>
                   <p className="text-[36px] font-bold font-mono text-[var(--fg-90)] leading-none">
-                    {hub.monthSessions} <span className="text-[15px] font-normal text-[var(--fg-25)]">/ {Math.max(hub.monthSessions, 16)}</span>
+                    {hub.monthSessions} <span className="text-[15px] font-normal text-[var(--fg-25)]">this month</span>
                   </p>
                   {volChange !== null && (
                     <span className="text-[11px] font-mono mt-1.5 block" style={{ color: volChange >= 0 ? "rgb(var(--status-recovered-rgb) / 0.8)" : "rgb(var(--status-fatigued-rgb) / 0.8)" }}>
-                      {volChange >= 0 ? "↑" : "↓"} {Math.abs(volChange)} vs last month
+                      {volChange >= 0 ? "↑" : "↓"} {Math.abs(volChange)}% vol vs last wk
                     </span>
                   )}
                   {hub.sixWeekSessions.length > 1 && (
@@ -1323,8 +1323,21 @@ export default function TrackHub() {
                       ? `${(hub.todayCalorieTarget - hub.todayCalories).toLocaleString()} remaining`
                       : "Target reached"}
                   </span>
+                  {/* Calorie progress */}
+                  <div className="flex items-center gap-2 mt-3">
+                    <div className="flex-1 h-[5px] rounded-full bg-[var(--fg-06)] overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{
+                          width: `${Math.min(100, (hub.todayCalories / hub.todayCalorieTarget) * 100)}%`,
+                          backgroundColor: hub.todayCalories >= hub.todayCalorieTarget ? "rgb(var(--status-recovered-rgb))" : "rgb(249 115 22)",
+                        }}
+                      />
+                    </div>
+                    <span className="text-[10px] font-mono text-[var(--fg-25)] shrink-0">{Math.round((hub.todayCalories / hub.todayCalorieTarget) * 100)}%</span>
+                  </div>
                   {/* Macro bar */}
-                  <div className="flex gap-0.5 mt-3 h-2.5 rounded-full overflow-hidden bg-[var(--fg-06)]">
+                  <div className="flex gap-0.5 mt-2 h-2.5 rounded-full overflow-hidden bg-[var(--fg-06)]">
                     {hub.todayCalorieTarget > 0 && (
                       <>
                         <div style={{ width: `${(hub.todayProtein * 4 / hub.todayCalorieTarget) * 100}%`, backgroundColor: "rgb(239 68 68)" }} className="rounded-full" />
@@ -1441,9 +1454,9 @@ export default function TrackHub() {
       </motion.div>
 
       {/* Water toast */}
-      {waterToast && (
+      {waterToast !== false && (
         <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-[var(--fg-80)] text-[var(--bg-primary)] px-4 py-2 rounded-full text-sm font-mono shadow-lg animate-in fade-in slide-in-from-bottom-2">
-          +250ml logged
+          +{waterToast}ml logged
         </div>
       )}
     </main>
