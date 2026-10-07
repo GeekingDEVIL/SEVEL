@@ -119,9 +119,9 @@ function computeOverload(lastW: number | null, lastR: number | null, targetReps:
     const maxTarget = Number(targetReps.split("-").pop()) || 10;
     if (lastR >= maxTarget) {
         const next = lastW < 20 ? lastW + 1 : lastW < 50 ? lastW + 2.5 : lastW + 5;
-        return { type: "weight_up", text: `Hit ${lastR} reps → increase to ${kgToUnit(next, unit)}${unit}`, suggestedWeight: next };
+        return { type: "weight_up", text: `Hit ${lastR} reps → increase to ${kgToUnit(next, unit)} ${unit}`, suggestedWeight: next };
     }
-    return { type: "reps_up", text: `Got ${lastR} reps @ ${kgToUnit(lastW, unit)}${unit} → aim for ${lastR + 1}+`, suggestedWeight: lastW };
+    return { type: "reps_up", text: `Got ${lastR} reps @ ${kgToUnit(lastW, unit)} ${unit} → aim for ${lastR + 1}+`, suggestedWeight: lastW };
 }
 
 const MAX_SESSIONS_PER_DAY = 3;
@@ -916,7 +916,7 @@ export function useWorkoutSession() {
         if (w > prev && prev > 0) {
             setPrCount((c) => c + 1);
             setPrExerciseIds((s) => new Set(s).add(exerciseId));
-            await supabase.from("notifications").insert({ user_id: user.id, type: "new_pr", title: "NEW PERSONAL RECORD", message: `${name}: ${kgToUnit(w, weightUnit)}${weightUnit} × ${r} — previous best was ${kgToUnit(prev, weightUnit)}${weightUnit}`, metadata: { exercise_name: name, weight: w, reps: r, previous_best: prev }, sex: userSex });
+            await supabase.from("notifications").insert({ user_id: user.id, type: "new_pr", title: "NEW PERSONAL RECORD", message: `${name}: ${kgToUnit(w, weightUnit)} ${weightUnit} × ${r} — previous best was ${kgToUnit(prev, weightUnit)} ${weightUnit}`, metadata: { exercise_name: name, weight: w, reps: r, previous_best: prev }, sex: userSex });
         }
     }
 
@@ -1229,7 +1229,7 @@ export function useWorkoutSession() {
         const xp = await calculateSessionXP(user.id, sessionId, setsData, totalPlannedSets, prCount, userSex);
 
         await supabase.from("workout_sessions").update({ status: "completed", completed_at: new Date().toISOString(), duration_seconds: dur, total_volume: totalVolume, total_sets: totalSets, xp_earned: xp.total, ...(cycleProfile ? { cycle_phase: cycleProfile.phase, cycle_day: cycleProfile.cycleDay } : {}) }).eq("id", sessionId);
-        await supabase.from("notifications").insert({ user_id: user.id, type: "workout_complete", title: "WORKOUT COMPLETE", message: `${dayTitle} — ${totalSets} sets, ${Math.round(kgToUnit(totalVolume, weightUnit)).toLocaleString()}${weightUnit} volume, +${xp.total} XP`, metadata: { sets: totalSets, volume: totalVolume, xp: xp.total }, sex: userSex });
+        await supabase.from("notifications").insert({ user_id: user.id, type: "workout_complete", title: "WORKOUT COMPLETE", message: `${dayTitle} — ${totalSets} sets, ${Math.round(kgToUnit(totalVolume, weightUnit)).toLocaleString()} ${weightUnit} volume, +${xp.total} XP`, metadata: { sets: totalSets, volume: totalVolume, xp: xp.total }, sex: userSex });
 
         const { data: sessions } = await supabase.from("workout_sessions").select("date").eq("user_id", user.id).eq("status", "completed").eq("sex", userSex).order("date", { ascending: false }).limit(120);
         if (sessions) {

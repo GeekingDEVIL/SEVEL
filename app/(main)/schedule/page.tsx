@@ -2152,7 +2152,7 @@ export default function SchedulePage() {
                                         {lastSessionInfo && (
                                             <p className="text-[8px] font-mono text-[var(--fg-20)] mt-1.5 text-center">
                                                 Last {lastSessionInfo.title}: {lastSessionInfo.daysAgo === 0 ? "today" : lastSessionInfo.daysAgo === 1 ? "yesterday" : `${lastSessionInfo.daysAgo}d ago`}
-                                                {lastSessionInfo.volume > 0 && ` · ${Math.round(kgToUnitW(lastSessionInfo.volume, w.weightUnit)).toLocaleString()}${w.weightUnit}`}
+                                                {lastSessionInfo.volume > 0 && ` · ${Math.round(kgToUnitW(lastSessionInfo.volume, w.weightUnit)).toLocaleString()} ${w.weightUnit}`}
                                             </p>
                                         )}
                                     </div>
@@ -2676,7 +2676,7 @@ export default function SchedulePage() {
                                     {delta === "down" && <ArrowDown size={9} className="text-red-400/60 shrink-0" />}
                                     {isPr && <Trophy size={10} className="text-amber-400 shrink-0" />}
                                     <span className="text-[9px] font-mono text-[var(--fg-25)] shrink-0 tabular-nums">
-                                        {last && last.weight != null ? `${Math.round(kgToUnitW(last.weight, w.weightUnit))}${w.weightUnit}` : `${ex.target_sets}s`}
+                                        {last && last.weight != null ? `${Math.round(kgToUnitW(last.weight, w.weightUnit))} ${w.weightUnit}` : `${ex.target_sets}s`}
                                     </span>
                                     <GripVertical size={10} className="text-[var(--fg-10)] shrink-0 ml-0.5" />
                                 </div>
@@ -2845,8 +2845,8 @@ export default function SchedulePage() {
                                             </div>
                                             <p className="text-[9px] font-mono text-[var(--fg-25)]">
                                                 {isSkipped ? "Skipped" : `${done}/${workingSetsOnly.length} ${ex.tracking_mode === "rounds_duration" ? "rounds" : ex.tracking_mode === "duration_only" ? "holds" : "sets"}${warmupSetsOnly.length > 0 ? ` + ${warmupDone}/${warmupSetsOnly.length} warm-up` : ""}${
-                                                    ghost && w.status === "not_started" ? ` · Last ${todayName.slice(0,3)}: ${ghost[0]?.weight != null ? `${kgToUnitW(ghost[0].weight, w.weightUnit)}${w.weightUnit}` : "—"} × ${ghost[0]?.reps ?? "—"}` :
-                                                    last ? ` · Last: ${last.weight != null ? kgToUnitW(last.weight, w.weightUnit) : "—"}${ex.tracking_mode === "distance_time" ? "" : ex.isBodyweight ? " BW" : w.weightUnit} × ${last.reps ?? "—"}` : ""
+                                                    ghost && w.status === "not_started" ? ` · Last ${todayName.slice(0,3)}: ${ghost[0]?.weight != null ? `${kgToUnitW(ghost[0].weight, w.weightUnit)} ${w.weightUnit}` : "—"} × ${ghost[0]?.reps ?? "—"}` :
+                                                    last ? ` · Last: ${last.weight != null ? kgToUnitW(last.weight, w.weightUnit) : "—"}${ex.tracking_mode === "distance_time" ? "" : ex.isBodyweight ? " BW" : ` ${w.weightUnit}`} × ${last.reps ?? "—"}` : ""
                                                 }`}
                                             </p>
                                         </div>
@@ -2877,7 +2877,7 @@ export default function SchedulePage() {
                                                     <p className="text-[10px] font-mono text-[rgb(var(--accent-rgb)/0.6)] flex-1">{hint.text}</p>
                                                     {hint.suggestedWeight != null && (
                                                         <span className="shrink-0 text-[9px] font-mono font-bold px-2 py-1 rounded-md bg-[rgb(var(--accent-rgb)/0.15)] text-[rgb(var(--accent-rgb))]">
-                                                            Try {kgToUnitW(hint.suggestedWeight, w.weightUnit)}{w.weightUnit} →
+                                                            Try {kgToUnitW(hint.suggestedWeight, w.weightUnit)} {w.weightUnit} →
                                                         </span>
                                                     )}
                                                 </button>
@@ -3600,7 +3600,7 @@ export default function SchedulePage() {
                                                                         <span className="text-[8px] font-mono text-[rgb(var(--accent-light-rgb)/0.6)]">
                                                                             {completedDaySummaries[wd].minutes > 0 && `${completedDaySummaries[wd].minutes}m`}
                                                                             {completedDaySummaries[wd].minutes > 0 && completedDaySummaries[wd].volume > 0 && " · "}
-                                                                            {completedDaySummaries[wd].volume > 0 && `${Math.round(kgToUnitW(completedDaySummaries[wd].volume, w.weightUnit)).toLocaleString()}${w.weightUnit}`}
+                                                                            {completedDaySummaries[wd].volume > 0 && `${Math.round(kgToUnitW(completedDaySummaries[wd].volume, w.weightUnit)).toLocaleString()} ${w.weightUnit}`}
                                                                         </span>
                                                                     )}
                                                                     <div className="w-4 h-4 rounded-full bg-[rgb(var(--accent-rgb))] flex items-center justify-center" style={{ animation: "confetti-pop 0.4s ease-out both" }}><Check size={8} className="text-black" strokeWidth={3} /></div>

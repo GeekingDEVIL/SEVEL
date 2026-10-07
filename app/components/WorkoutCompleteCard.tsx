@@ -503,7 +503,7 @@ export default function WorkoutCompleteCard({
                                     <div className="best-moment-text">
                                         <div className="best-moment-label">BEST MOMENT</div>
                                         <div className="best-moment-value">
-                                            {bestMoment.name} — {kgToUnit(bestMoment.weight, unit)}{weightUnit} × {bestMoment.reps}
+                                            {bestMoment.name} — {kgToUnit(bestMoment.weight, unit)} {weightUnit} × {bestMoment.reps}
                                             {bestMoment.isPr && " (PR)"}
                                         </div>
                                     </div>
@@ -609,7 +609,7 @@ export default function WorkoutCompleteCard({
                                                         ) : ex.mode === "distance_time" ? (
                                                             <>{ex.sets[0]?.duration ? `${ex.sets[0].duration}min` : ""}{ex.sets[0]?.distance ? ` · ${ex.sets[0].distance}km` : ""}</>
                                                         ) : (
-                                                            <>{ex.sets.length}×{ex.topReps} · {kgToUnit(ex.maxWeight, unit)}{weightUnit}</>
+                                                            <>{ex.sets.length}×{ex.topReps} · {kgToUnit(ex.maxWeight, unit)} {weightUnit}</>
                                                         )}
                                                         <span className="expand-arrow">{"▾"}</span>
                                                     </div>
@@ -626,7 +626,7 @@ export default function WorkoutCompleteCard({
                                                                 ) : ex.mode === "distance_time" ? (
                                                                     <>{s.duration ? `${s.duration}min` : ""}{s.distance ? ` · ${s.distance}km` : ""}{s.weight ? ` · ${s.weight}km/h` : ""}</>
                                                                 ) : (
-                                                                    <>{kgToUnit(Number(s.weight) || 0, unit)}{weightUnit} × {s.reps}</>
+                                                                    <>{kgToUnit(Number(s.weight) || 0, unit)} {weightUnit} × {s.reps}</>
                                                                 )}
                                                             </span>
                                                             {s.rpe && <span className={`set-rpe ${rpeClass(s.rpe)}`}>RPE {s.rpe}</span>}

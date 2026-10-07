@@ -494,7 +494,7 @@ export function PhasePerformanceCard({ data, weightUnit }: { data: PhasePerforma
               </div>
               <p className="text-[8px] font-mono text-[var(--fg-50)]">{p.label.slice(0, 4)}</p>
               <p className="text-[7px] font-mono text-[var(--fg-25)]">{p.workouts}w</p>
-              <p className="text-[7px] font-mono text-[var(--fg-20)]">{Math.round(kgToUnit(p.avgVolume, weightUnit))}{weightUnit}</p>
+              <p className="text-[7px] font-mono text-[var(--fg-20)]">{Math.round(kgToUnit(p.avgVolume, weightUnit))} {weightUnit}</p>
             </div>
           );
         })}

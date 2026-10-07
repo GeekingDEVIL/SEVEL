@@ -285,10 +285,13 @@ export function getDailyQuests(userId: string, dateStr: string, habits: Habit[])
     return true;
   });
 
-  // Pick 2 quests deterministically
+  // Pick 2 distinct quests deterministically
   const quests: DailyQuest[] = [];
-  for (let i = 0; i < 2 && i < available.length; i++) {
-    const idx = (seed + i * 7) % available.length;
+  const usedIndices = new Set<number>();
+  for (let i = 0; i < 2 && usedIndices.size < available.length; i++) {
+    let idx = (seed + i * 7) % available.length;
+    while (usedIndices.has(idx)) idx = (idx + 1) % available.length;
+    usedIndices.add(idx);
     const template = available[idx];
     quests.push({
       id: `quest-${dateStr}-${i}`,
