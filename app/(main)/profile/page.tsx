@@ -1148,11 +1148,11 @@ export default function ProfilePage() {
                                 </div>
                                 <div className="text-center">
                                     <p className="text-[8px] font-mono text-[var(--fg-25)] tracking-wider">VOLUME</p>
-                                    <p className="text-lg font-bold font-mono text-[var(--fg-80)] mt-0.5">{(() => { const v = Math.round(kgToUnit(totalVolume, wUnit)); return v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v; })()}</p>
+                                    <p className="text-lg font-bold font-mono text-[var(--fg-80)] mt-0.5">{(() => { const v = Math.round(kgToUnit(totalVolume, wUnit)); return v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v; })()}<span className="text-[9px] font-normal text-[var(--fg-25)] ml-0.5">{wUnit}</span></p>
                                 </div>
                                 <div className="text-center">
                                     <p className="text-[8px] font-mono text-[var(--fg-25)] tracking-wider">WEIGHT</p>
-                                    <p className="text-lg font-bold font-mono text-[var(--fg-80)] mt-0.5">{displayWeight ?? "—"}</p>
+                                    <p className="text-lg font-bold font-mono text-[var(--fg-80)] mt-0.5">{displayWeight ?? "—"}{displayWeight != null && <span className="text-[9px] font-normal text-[var(--fg-25)] ml-0.5">{wUnit}</span>}</p>
                                 </div>
                                 <div className="text-center cursor-pointer" onClick={() => { if (!bmi && latestWeight) setSection("stats"); }}>
                                     <p className="text-[8px] font-mono text-[var(--fg-25)] tracking-wider">BMI</p>

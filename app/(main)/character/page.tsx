@@ -10,6 +10,8 @@ import { useSex } from "../../lib/useSex";
 import { supabase } from "../../lib/supabase";
 import { computeLevel, getRank, getNextRank } from "../../lib/levelSystem";
 import OnboardingTooltip from "../../components/ui/onboarding-tooltip";
+import { useUnits } from "../../lib/useUnits";
+import { kgToUnit } from "../../lib/units";
 
 type FitnessClass = {
   name: string;
@@ -523,6 +525,7 @@ export default function CharacterPage() {
   const { user } = useAuth();
   const { sex: userSex } = useSex();
   const { enabledKeys } = useModules();
+  const weightUnit = useUnits();
   const [stats, setStats] = useState<{
     totalXp: number;
     totalWorkouts: number;
@@ -710,8 +713,8 @@ export default function CharacterPage() {
               </div>
               <div className="glass-card p-3 text-center">
                 <Swords size={14} className="text-red-400/50 mx-auto mb-1" />
-                <p className="text-lg font-bold font-display text-[var(--fg-80)]">{(stats.totalVolume / 1000).toFixed(0)}k</p>
-                <p className="text-[8px] font-mono text-[var(--fg-25)]">VOLUME KG</p>
+                <p className="text-lg font-bold font-display text-[var(--fg-80)]">{(kgToUnit(stats.totalVolume, weightUnit) / 1000).toFixed(0)}k</p>
+                <p className="text-[8px] font-mono text-[var(--fg-25)]">VOLUME {weightUnit.toUpperCase()}</p>
               </div>
               <div className="glass-card p-3 text-center">
                 <Crown size={14} className="text-yellow-400/50 mx-auto mb-1" />

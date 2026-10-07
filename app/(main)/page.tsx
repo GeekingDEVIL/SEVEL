@@ -669,7 +669,7 @@ export default function Dashboard() {
       if (stats.prCount > 0) insights.push(`${stats.prCount} personal records set so far`);
       if (stats.recoveryPct !== null && stats.recoveryPct >= 95) insights.push("Fully recovered — optimal training window");
       else if (stats.recoveryPct !== null && stats.recoveryPct < 40) insights.push("Recovery low — consider a lighter session");
-      if (stats.weeklyVolume > 0) insights.push(`${Math.round(stats.weeklyVolume).toLocaleString()} ${weightUnit} volume this week`);
+      if (stats.weeklyVolume > 0) insights.push(`${Math.round(kgToUnit(stats.weeklyVolume, weightUnit)).toLocaleString()} ${weightUnit} volume this week`);
       if (insights.length > 0) {
         setInsight(insights[Math.floor(Math.random() * insights.length)]);
       }
@@ -997,7 +997,7 @@ export default function Dashboard() {
                 <p className="text-[8px] font-mono text-[var(--fg-25)]">WORKOUTS</p>
               </div>
               <div className="text-center">
-                <p className="text-xl font-bold font-mono text-[var(--fg-90)]">{Math.round(weeklyRecap.volume).toLocaleString()}</p>
+                <p className="text-xl font-bold font-mono text-[var(--fg-90)]">{Math.round(kgToUnit(weeklyRecap.volume, weightUnit)).toLocaleString()}</p>
                 <p className="text-[8px] font-mono text-[var(--fg-25)]">VOL ({weightUnit})</p>
               </div>
               <div className="text-center">
@@ -1372,7 +1372,7 @@ export default function Dashboard() {
               </p>
               {stats.bodyWeightChange !== null ? (
                 <p className={`text-[9px] font-mono mt-0.5 ${stats.bodyWeightChange > 0 ? "text-orange-300/60" : stats.bodyWeightChange < 0 ? "text-emerald-300/60" : "text-[var(--fg-20)]"}`}>
-                  {stats.bodyWeightChange > 0 ? "+" : stats.bodyWeightChange < 0 ? "−" : ""}{formatWeight(Math.abs(stats.bodyWeightChange), weightUnit, 1)} {weightUnit} from previous
+                  {stats.bodyWeightChange === 0 ? "No change" : `${stats.bodyWeightChange > 0 ? "+" : "−"}${formatWeight(Math.abs(stats.bodyWeightChange), weightUnit, 1)} ${weightUnit} from previous`}
                 </p>
               ) : (
                 <p className="text-[9px] font-mono text-[var(--fg-20)] mt-0.5">No trend data</p>
