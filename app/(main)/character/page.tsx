@@ -6,23 +6,26 @@ import {
   TrendingUp, Award, Star, Sparkles, ChevronRight, Crosshair, Wind,
   Footprints, Dumbbell, Activity, Lock, AlertTriangle, Axe, Hammer,
   Compass, Mountain, Eye, Anchor, Skull, Feather, HandMetal, Tornado,
+  Trophy, Check, Gift, Calendar,
 } from "lucide-react";
 import SwipeNav from "../../components/ui/swipe-nav";
 import { getSocialSections } from "../../lib/navPills";
 import { useModules } from "../../lib/useModules";
 import { useAuth } from "../../lib/AuthProvider";
 import { useSex } from "../../lib/useSex";
-import { supabase } from "../../lib/supabase";
 import { useUnits } from "../../lib/useUnits";
 import { kgToUnit } from "../../lib/units";
 import {
-  RANKS, getRankForLevel, getNextRankDef, computeCharacterLevel,
-  getReforgeInfo, formatRankDisplay,
-  DOMAIN_KEYS, DOMAIN_LABELS, DOMAIN_COLORS, DOMAIN_DESCRIPTIONS,
-  computeDomainScores, assignArchetype, detectSpecialization,
-  formatArchetypeDisplay, getUnlockTier,
-  type DomainKey, type DomainScores, type DomainInput,
+  getRankForLevel, getNextRankDef, computeCharacterLevel,
+  DOMAIN_KEYS, DOMAIN_COLORS,
+  assignArchetype, detectSpecialization,
+  type DomainKey, type DomainScores,
 } from "../../lib/characterEngine";
+import {
+  fetchCharacterData, persistDomainScores, saveDomainSnapshot,
+  getOrCreateWeeklyChallenges, getOrCreateMonthlyChallenges, claimChallengeReward,
+  type CharacterData, type ActiveChallenge,
+} from "../../lib/characterData";
 
 const DOMAIN_ICONS: Record<DomainKey, typeof Dumbbell> = {
   force: Dumbbell,
@@ -229,21 +232,7 @@ const TREE_COLORS = {
   mastery:    { active: "rgb(139 92 246)",  border: "rgb(139 92 246 / 0.4)", bg: "rgb(139 92 246 / 0.1)" },
 };
 
-type Stats = {
-  totalXp: number;
-  totalWorkouts: number;
-  totalVolume: number;
-  streak: number;
-  bestStreak: number;
-  achievementCount: number;
-  prCount: number;
-  reforgeCount: number;
-  forgeShards: number;
-  totalLifetimeXp: number;
-  maSessionCount: number;
-  exerciseVariety: number;
-  completionRate: number;
-};
+type Stats = CharacterData;
 
 export default function CharacterPage() {
   const { user } = useAuth();
@@ -252,65 +241,47 @@ export default function CharacterPage() {
   const weightUnit = useUnits();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [domainScores, setDomainScores] = useState<DomainScores | null>(null);
+  const [ghostScores, setGhostScores] = useState<DomainScores | null>(null);
+  const [challenges, setChallenges] = useState<ActiveChallenge[]>([]);
+  const [claimingId, setClaimingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
     async function load() {
-      const [
-        { data: userStats },
-        { count: prCount },
-        { data: exerciseLogs },
-        { count: maCount },
-      ] = await Promise.all([
-        supabase
-          .from("user_stats")
-          .select("total_xp, total_workouts, total_volume, current_streak, best_streak, achievement_count")
-          .eq("user_id", user!.id)
-          .eq("sex", userSex)
-          .maybeSingle(),
-        supabase
-          .from("exercise_set_logs")
-          .select("id, workout_sessions!inner()", { count: "exact", head: true })
-          .eq("workout_sessions.user_id", user!.id)
-          .eq("workout_sessions.status", "completed")
-          .eq("workout_sessions.sex", userSex)
-          .eq("is_pr", true),
-        supabase
-          .from("exercise_set_logs")
-          .select("exercise_id, workout_sessions!inner()")
-          .eq("workout_sessions.user_id", user!.id)
-          .eq("workout_sessions.status", "completed")
-          .eq("workout_sessions.sex", userSex)
-          .limit(2000),
-        supabase
-          .from("ma_sessions")
-          .select("id", { count: "exact", head: true })
-          .eq("user_id", user!.id)
-          .eq("sex", userSex),
+      const data = await fetchCharacterData(user!.id, userSex);
+      if (!data) { setLoading(false); return; }
+
+      setStats(data);
+      setDomainScores(data.domainScores);
+      setGhostScores(data.prevSnapshot);
+
+      const arch = assignArchetype(data.domainScores);
+      const spec = detectSpecialization(arch, null);
+
+      persistDomainScores(user!.id, userSex, data.domainScores, arch.name, spec?.name ?? null);
+      saveDomainSnapshot(user!.id, userSex, data.domainScores);
+
+      const [weekly, monthly] = await Promise.all([
+        getOrCreateWeeklyChallenges(user!.id, userSex, arch.name).catch(() => [] as ActiveChallenge[]),
+        getOrCreateMonthlyChallenges(user!.id, userSex, arch.name).catch(() => [] as ActiveChallenge[]),
       ]);
+      setChallenges([...weekly, ...monthly]);
 
-      const distinctExercises = new Set(exerciseLogs?.map(r => r.exercise_id) ?? []).size;
-      const totalWorkouts = userStats?.total_workouts ?? 0;
-
-      setStats({
-        totalXp: userStats?.total_xp ?? 0,
-        totalWorkouts,
-        totalVolume: userStats?.total_volume ?? 0,
-        streak: userStats?.current_streak ?? 0,
-        bestStreak: userStats?.best_streak ?? 0,
-        achievementCount: userStats?.achievement_count ?? 0,
-        prCount: prCount ?? 0,
-        reforgeCount: (userStats as any)?.reforge_count ?? 0,
-        forgeShards: (userStats as any)?.forge_shards ?? 0,
-        totalLifetimeXp: Number((userStats as any)?.total_lifetime_xp ?? 0),
-        maSessionCount: maCount ?? 0,
-        exerciseVariety: distinctExercises,
-        completionRate: totalWorkouts > 0 ? Math.min(1, totalWorkouts / (totalWorkouts + 2)) : 0,
-      });
       setLoading(false);
     }
     load();
   }, [user, userSex]);
+
+  async function handleClaimReward(ch: ActiveChallenge) {
+    if (!user || claimingId) return;
+    setClaimingId(ch.id);
+    const ok = await claimChallengeReward(user.id, userSex, ch.id, ch.xpReward, ch.title);
+    if (ok) {
+      setChallenges(prev => prev.map(c => c.id === ch.id ? { ...c, rewardClaimed: true } : c));
+    }
+    setClaimingId(null);
+  }
 
   const levelInfo = useMemo(
     () => stats ? computeCharacterLevel(stats.totalXp, stats.reforgeCount) : null,
@@ -318,47 +289,6 @@ export default function CharacterPage() {
   );
   const rank = useMemo(() => levelInfo ? getRankForLevel(levelInfo.level) : null, [levelInfo]);
   const nextRank = useMemo(() => levelInfo ? getNextRankDef(levelInfo.level) : null, [levelInfo]);
-
-  const domainScores = useMemo<DomainScores | null>(() => {
-    if (!stats) return null;
-    const input: DomainInput = {
-      totalVolume: stats.totalVolume,
-      prCount: stats.prCount,
-      compoundLiftCount: Math.round(stats.prCount * 0.6),
-      formCheckAvg: 0,
-      formCheckCount: 0,
-      mobilitySessionCount: 0,
-      cardioMinutes: 0,
-      maSessionCount: stats.maSessionCount,
-      maTechniqueAvg: 0,
-      exerciseVariety: stats.exerciseVariety,
-      bodyweightSetCount: 0,
-      totalSetCount: stats.totalWorkouts * 15,
-      currentStreak: stats.streak,
-      bestStreak: stats.bestStreak,
-      completionRate: stats.completionRate,
-      scheduledAdherence: stats.completionRate,
-      totalWorkouts: stats.totalWorkouts,
-      weeksSinceForce: 0,
-      weeksSinceForm: 4,
-      weeksSinceFlow: 4,
-      weeksSinceFight: stats.maSessionCount > 0 ? 0 : 4,
-      weeksSinceFunction: 0,
-    };
-    return computeDomainScores(input);
-  }, [stats]);
-
-  const ghostScores = useMemo<DomainScores | null>(() => {
-    if (!domainScores) return null;
-    return {
-      force: Math.max(0, domainScores.force - 3),
-      form: Math.max(0, domainScores.form - 1),
-      flow: Math.max(0, domainScores.flow - 2),
-      fight: Math.max(0, domainScores.fight - 4),
-      function: Math.max(0, domainScores.function - 2),
-      fortitude: Math.max(0, domainScores.fortitude - 5),
-    };
-  }, [domainScores]);
 
   const archetype = useMemo(
     () => domainScores ? assignArchetype(domainScores) : null,
@@ -535,6 +465,100 @@ export default function CharacterPage() {
                       </div>
                     );
                   })}
+                </div>
+              </div>
+            )}
+
+            {/* ── Active Challenges ── */}
+            {challenges.length > 0 && (
+              <div className="glass-card p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <Trophy size={14} className="text-[rgb(var(--accent-rgb))]" />
+                    <p className="section-label">ACTIVE CHALLENGES</p>
+                  </div>
+                  <span className="text-[9px] font-mono text-[var(--fg-20)]">
+                    {challenges.filter(c => c.completed).length}/{challenges.length} DONE
+                  </span>
+                </div>
+                <div className="space-y-3">
+                  {challenges.map(ch => {
+                    const pct = Math.min(100, Math.round((ch.current / ch.target) * 100));
+                    const isMonthly = ch.challengeType === "monthly";
+                    const barColor = ch.completed
+                      ? "rgb(16 185 129)"
+                      : isMonthly
+                        ? "rgb(234 179 8)"
+                        : "rgb(var(--accent-rgb))";
+                    return (
+                      <div
+                        key={ch.id}
+                        className="p-3 rounded-xl border"
+                        style={{
+                          borderColor: ch.completed ? "rgb(16 185 129 / 0.2)" : "var(--fg-06)",
+                          background: ch.completed ? "rgb(16 185 129 / 0.04)" : "var(--fg-02)",
+                        }}
+                      >
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div className="flex items-center gap-2 min-w-0">
+                            {isMonthly && (
+                              <span className="text-[7px] font-mono font-bold px-1.5 py-0.5 rounded bg-[rgb(234_179_8/0.12)] text-[rgb(234_179_8)]">
+                                MONTHLY
+                              </span>
+                            )}
+                            <span className="text-[11px] font-mono font-bold text-[var(--fg-70)] truncate">
+                              {ch.title}
+                            </span>
+                          </div>
+                          {ch.completed && !ch.rewardClaimed ? (
+                            <button
+                              onClick={() => handleClaimReward(ch)}
+                              disabled={claimingId === ch.id}
+                              className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9px] font-mono font-bold transition-colors"
+                              style={{
+                                background: "rgb(var(--accent-rgb) / 0.15)",
+                                color: "rgb(var(--accent-rgb))",
+                              }}
+                            >
+                              <Gift size={10} />
+                              {claimingId === ch.id ? "..." : `+${ch.xpReward} XP`}
+                            </button>
+                          ) : ch.completed && ch.rewardClaimed ? (
+                            <span className="flex items-center gap-1 text-[9px] font-mono text-[rgb(16_185_129)]">
+                              <Check size={10} /> CLAIMED
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-mono text-[var(--fg-25)]">
+                              +{ch.xpReward} XP
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[9px] font-mono text-[var(--fg-30)] mb-2">
+                          {ch.description}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-1.5 rounded-full bg-[var(--fg-06)] overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all duration-500"
+                              style={{
+                                width: `${pct}%`,
+                                background: barColor,
+                              }}
+                            />
+                          </div>
+                          <span className="text-[9px] font-mono text-[var(--fg-35)] shrink-0">
+                            {ch.current}/{ch.target}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-[var(--fg-04)]">
+                  <Calendar size={10} className="text-[var(--fg-20)]" />
+                  <span className="text-[8px] font-mono text-[var(--fg-20)]">
+                    Challenges reset weekly (Mon) · Super challenge resets monthly
+                  </span>
                 </div>
               </div>
             )}

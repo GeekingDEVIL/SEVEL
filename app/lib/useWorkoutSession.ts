@@ -6,6 +6,7 @@ import { useAuth } from "./AuthProvider";
 import { calculateSessionXP, type XPBreakdown } from "./xpEngine";
 import { generateWarmupSets } from "./warmupSets";
 import { computeCharacterLevel, getRankForLevel } from "./characterEngine";
+import { logXpEvent, logHistoryEvent, updateChallengeProgress } from "./characterData";
 import { checkAndAwardAchievements } from "./achievements";
 import { updateUserStats } from "./updateUserStats";
 import { updateExerciseLeaderboard } from "./updateExerciseLeaderboard";
@@ -1254,6 +1255,18 @@ export function useWorkoutSession() {
                 sex: userSex,
             });
         }
+
+        logXpEvent(user.id, userSex, xp.total, "workout_complete", sessionId, `${dayTitle} — ${totalSets} sets`).catch(() => {});
+        logHistoryEvent(user.id, userSex, "workout_complete", `${dayTitle}`, `${totalSets} sets, ${Math.round(totalVolume).toLocaleString()} volume, +${xp.total} XP`, { session_id: sessionId, sets: totalSets, volume: totalVolume, xp: xp.total, prs: prCount }).catch(() => {});
+
+        const uniqueExIds = new Set(workingSets.map(s => { const ex = exercisesList.find(e => logs[e.id]?.includes(s)); return ex?.exercise_id; }).filter(Boolean));
+        updateChallengeProgress(user.id, userSex, {
+          volume: Math.round(totalVolume),
+          prs: prCount,
+          workouts: 1,
+          exerciseVariety: uniqueExIds.size,
+          fullCompletion: totalSets >= totalPlannedSets ? 1 : 0,
+        }).catch(() => {});
 
         await checkAndAwardAchievements(user.id, userSex);
         await updateUserStats(user.id);

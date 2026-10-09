@@ -9,6 +9,8 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import { supabase } from "../lib/supabase";
+import { useSex } from "../lib/useSex";
+import { logXpEvent, logHistoryEvent, updateChallengeProgress } from "../lib/characterData";
 import {
   DISCIPLINES, SESSION_TYPE_LABELS,
   TECHNIQUE_LIBRARY, COMBO_LIBRARY, ROUND_PRESETS, WARMUPS, COOLDOWNS, getCooldownType,
@@ -50,6 +52,7 @@ export default function MaSessionInline({ discipline, sessionType, userId, onDon
   onDone: () => void;
   onCancel: () => void;
 }) {
+  const { sex: userSex } = useSex();
   const [view, setView] = useState<"session" | "receipt">("session");
   const [sessionPhase, setSessionPhase] = useState<SessionPhase>("setup");
   const [currentRound, setCurrentRound] = useState(0);
@@ -180,6 +183,9 @@ export default function MaSessionInline({ discipline, sessionType, userId, onDon
         });
       }
       try { await supabase.rpc("add_xp", { p_user_id: userId, p_amount: xp }); } catch {}
+      logXpEvent(userId, userSex, xp, "ma_session", session.id, `${discLabel} — ${sessionLabel}`).catch(() => {});
+      logHistoryEvent(userId, userSex, "ma_session", `${discLabel} — ${sessionLabel}`, `${roundLogs.length} rounds, +${xp} XP`, { session_id: session.id, discipline, session_type: sessionType, rounds: roundLogs.length, xp }).catch(() => {});
+      updateChallengeProgress(userId, userSex, { maSessions: 1, maDisciplines: 1 }).catch(() => {});
     }
     setView("receipt");
   }
