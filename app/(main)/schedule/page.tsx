@@ -2053,7 +2053,7 @@ export default function SchedulePage() {
                 {completedSummaryCard}
 
                 {/* ═══ SKELETON LOADING (#26) ═══ */}
-                {!w.hasLoaded && (!recurringLoaded || w.loadHint === "active") && (
+                {(!w.hasLoaded || !recurringLoaded) && (
                     <div className="rounded-2xl border border-[var(--fg-06)] bg-[var(--fg-02)] p-5 space-y-4">
                         <div className="flex items-center gap-3">
                             <div className="schedule-skeleton w-24 h-4" />
@@ -3381,7 +3381,7 @@ export default function SchedulePage() {
                 )}
 
                 {/* ═══ MA SESSION (inline martial arts training) ═══ */}
-                {recurringLoaded && (!todayIsRest || adHocMa) && (todayMaPlan || adHocMa) && (
+                {recurringLoaded && w.hasLoaded && (!todayIsRest || adHocMa) && (todayMaPlan || adHocMa) && (
                     maSessionActive && (adHocMa || (todayMaPlan?.ma_discipline && todayMaPlan?.ma_session_type)) && user ? (
                         <MaSessionInline
                             discipline={(adHocMa?.discipline ?? todayMaPlan!.ma_discipline) as DisciplineId}

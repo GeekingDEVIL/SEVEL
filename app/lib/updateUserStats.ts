@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import { computeLevel, getRank } from "./levelSystem";
+import { computeCharacterLevel, getRankForLevel } from "./characterEngine";
 
 export async function updateUserStats(userId: string) {
   const { data: profile } = await supabase
@@ -21,8 +21,8 @@ export async function updateUserStats(userId: string) {
   const totalXp = (sessions ?? []).reduce((s, r: any) => s + (r.xp_earned || 0), 0);
   const totalVolume = (sessions ?? []).reduce((s, r: any) => s + (Number(r.total_volume) || 0), 0);
   const totalWorkouts = (sessions ?? []).length;
-  const levelInfo = computeLevel(totalXp);
-  const rank = getRank(levelInfo.level);
+  const levelInfo = computeCharacterLevel(totalXp);
+  const rank = getRankForLevel(levelInfo.level);
 
   const { data: plans } = await supabase
     .from("recurring_plans")

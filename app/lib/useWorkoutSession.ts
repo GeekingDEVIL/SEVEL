@@ -5,7 +5,7 @@ import { supabase } from "./supabase";
 import { useAuth } from "./AuthProvider";
 import { calculateSessionXP, type XPBreakdown } from "./xpEngine";
 import { generateWarmupSets } from "./warmupSets";
-import { computeLevel, getRank } from "./levelSystem";
+import { computeCharacterLevel, getRankForLevel } from "./characterEngine";
 import { checkAndAwardAchievements } from "./achievements";
 import { updateUserStats } from "./updateUserStats";
 import { updateExerciseLeaderboard } from "./updateExerciseLeaderboard";
@@ -347,8 +347,8 @@ export function useWorkoutSession() {
                 setLogs(doneLogMap);
                 const { data: xpRows } = await supabase.from("workout_sessions").select("xp_earned").eq("user_id", user.id).eq("status", "completed").eq("sex", sex);
                 const totalXp = (xpRows ?? []).reduce((s: number, r: any) => s + (r.xp_earned || 0), 0);
-                const lvl = computeLevel(totalXp).level;
-                setSummary({ sets: lastDone.total_sets ?? 0, volume: Number(lastDone.total_volume) || 0, duration: lastDone.duration_seconds ?? 0, xpBreakdown: { base: 0, setCompletion: 0, completionBonus: 0, prBonus: 0, progressionBonus: 0, consistencyBonus: 0, total: lastDone.xp_earned ?? 0, details: [] }, level: lvl, rankName: getRank(lvl).name });
+                const lvl = computeCharacterLevel(totalXp).level;
+                setSummary({ sets: lastDone.total_sets ?? 0, volume: Number(lastDone.total_volume) || 0, duration: lastDone.duration_seconds ?? 0, xpBreakdown: { base: 0, setCompletion: 0, completionBonus: 0, prBonus: 0, progressionBonus: 0, consistencyBonus: 0, total: lastDone.xp_earned ?? 0, details: [] }, level: lvl, rankName: getRankForLevel(lvl).name });
                 setLoadProgress(100);
                 setStatus("completed");
                 try { const c = JSON.parse(localStorage.getItem("sevel_workout_cache") || "null"); if (c) { c.completed = true; localStorage.setItem("sevel_workout_cache", JSON.stringify(c)); } } catch {}
@@ -484,8 +484,8 @@ export function useWorkoutSession() {
                 setLogs(doneLogMap2);
                 const { data: xpRows2 } = await supabase.from("workout_sessions").select("xp_earned").eq("user_id", user.id).eq("status", "completed").eq("sex", sex);
                 const totalXp2 = (xpRows2 ?? []).reduce((s: number, r: any) => s + (r.xp_earned || 0), 0);
-                const lvl2 = computeLevel(totalXp2).level;
-                setSummary({ sets: lastDone.total_sets ?? 0, volume: Number(lastDone.total_volume) || 0, duration: lastDone.duration_seconds ?? 0, xpBreakdown: { base: 0, setCompletion: 0, completionBonus: 0, prBonus: 0, progressionBonus: 0, consistencyBonus: 0, total: lastDone.xp_earned ?? 0, details: [] }, level: lvl2, rankName: getRank(lvl2).name });
+                const lvl2 = computeCharacterLevel(totalXp2).level;
+                setSummary({ sets: lastDone.total_sets ?? 0, volume: Number(lastDone.total_volume) || 0, duration: lastDone.duration_seconds ?? 0, xpBreakdown: { base: 0, setCompletion: 0, completionBonus: 0, prBonus: 0, progressionBonus: 0, consistencyBonus: 0, total: lastDone.xp_earned ?? 0, details: [] }, level: lvl2, rankName: getRankForLevel(lvl2).name });
                 setLoadProgress(100);
                 setStatus("completed");
                 try { const c = JSON.parse(localStorage.getItem("sevel_workout_cache") || "null"); if (c) { c.completed = true; localStorage.setItem("sevel_workout_cache", JSON.stringify(c)); } } catch {}
@@ -507,8 +507,8 @@ export function useWorkoutSession() {
                         setLogs(doneLogMap3);
                         const { data: xpRows3 } = await supabase.from("workout_sessions").select("xp_earned").eq("user_id", user.id).eq("status", "completed").eq("sex", sex);
                         const totalXp3 = (xpRows3 ?? []).reduce((s: number, r: any) => s + (r.xp_earned || 0), 0);
-                        const lvl3 = computeLevel(totalXp3).level;
-                        setSummary({ sets: lastDone.total_sets ?? 0, volume: Number(lastDone.total_volume) || 0, duration: lastDone.duration_seconds ?? 0, xpBreakdown: { base: 0, setCompletion: 0, completionBonus: 0, prBonus: 0, progressionBonus: 0, consistencyBonus: 0, total: lastDone.xp_earned ?? 0, details: [] }, level: lvl3, rankName: getRank(lvl3).name });
+                        const lvl3 = computeCharacterLevel(totalXp3).level;
+                        setSummary({ sets: lastDone.total_sets ?? 0, volume: Number(lastDone.total_volume) || 0, duration: lastDone.duration_seconds ?? 0, xpBreakdown: { base: 0, setCompletion: 0, completionBonus: 0, prBonus: 0, progressionBonus: 0, consistencyBonus: 0, total: lastDone.xp_earned ?? 0, details: [] }, level: lvl3, rankName: getRankForLevel(lvl3).name });
                         setLoadProgress(100);
                         setStatus("completed");
                         try { const c = JSON.parse(localStorage.getItem("sevel_workout_cache") || "null"); if (c) { c.completed = true; localStorage.setItem("sevel_workout_cache", JSON.stringify(c)); } } catch {}
@@ -1244,8 +1244,8 @@ export function useWorkoutSession() {
 
         const { data: xpRows } = await supabase.from("workout_sessions").select("xp_earned").eq("user_id", user.id).eq("status", "completed").eq("sex", userSex);
         const totalXp = (xpRows ?? []).reduce((s, r: any) => s + (r.xp_earned || 0), 0);
-        const lvlBefore = computeLevel(totalXp - xp.total).level;
-        const lvlAfter = computeLevel(totalXp).level;
+        const lvlBefore = computeCharacterLevel(totalXp - xp.total).level;
+        const lvlAfter = computeCharacterLevel(totalXp).level;
         if (lvlAfter > lvlBefore) {
             await supabase.from("notifications").insert({
                 user_id: user.id, type: "level_up", title: "LEVEL UP",
@@ -1276,7 +1276,7 @@ export function useWorkoutSession() {
         clearDraft();
         releaseWakeLock();
         setTodaySessions(prev => [...prev, { id: sessionId!, title: dayTitle, duration: dur, sets: totalSets, volume: totalVolume, xp: xp.total }]);
-        setSummary({ duration: dur, sets: totalSets, volume: totalVolume, xpBreakdown: xp, level: lvlAfter, rankName: getRank(lvlAfter).name });
+        setSummary({ duration: dur, sets: totalSets, volume: totalVolume, xpBreakdown: xp, level: lvlAfter, rankName: getRankForLevel(lvlAfter).name });
         setStatus("completed");
         try { const c = JSON.parse(localStorage.getItem("sevel_workout_cache") || "null"); if (c) { c.completed = true; localStorage.setItem("sevel_workout_cache", JSON.stringify(c)); } } catch {}
         setRestRemaining(null);

@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import { computeLevel, getRank } from "./levelSystem";
+import { computeCharacterLevel, getRankForLevel } from "./characterEngine";
 
 export type AchievementRarity = "COMMON" | "UNCOMMON" | "RARE" | "EPIC" | "LEGENDARY";
 
@@ -57,17 +57,16 @@ export const ACHIEVEMENT_DEFS: AchievementDef[] = [
   { key: "night_owl",         name: "Night Owl",           description: "Start a workout after 9 PM",                  icon: "🌙", rarity: "UNCOMMON",  category: "Discipline" },
 
   // ── RANK ──
-  { key: "rank_iron",         name: "Forged in Iron",      description: "Reach Iron rank (Level 5)",                   icon: "🛡️", rarity: "COMMON",    category: "Rank" },
-  { key: "rank_bronze",       name: "Bronze Warrior",      description: "Reach Bronze rank (Level 10)",                icon: "🛡️", rarity: "COMMON",    category: "Rank" },
-  { key: "rank_silver",       name: "Silver Knight",       description: "Reach Silver rank (Level 20)",                icon: "🛡️", rarity: "UNCOMMON",  category: "Rank" },
-  { key: "rank_gold",         name: "Golden Champion",     description: "Reach Gold rank (Level 35)",                  icon: "🛡️", rarity: "UNCOMMON",  category: "Rank" },
-  { key: "rank_platinum",     name: "Platinum Elite",      description: "Reach Platinum rank (Level 50)",              icon: "🛡️", rarity: "RARE",      category: "Rank" },
-  { key: "rank_diamond",      name: "Diamond Ascendant",   description: "Reach Diamond rank (Level 70)",               icon: "💎", rarity: "RARE",      category: "Rank" },
-  { key: "rank_master",       name: "Master of the Forge", description: "Reach Master rank (Level 90)",                icon: "💎", rarity: "EPIC",      category: "Rank" },
-  { key: "rank_grandmaster",  name: "Grandmaster",         description: "Reach Grandmaster rank (Level 110)",          icon: "💎", rarity: "EPIC",      category: "Rank" },
-  { key: "rank_legend",       name: "Living Legend",       description: "Reach Legend rank (Level 130)",               icon: "👑", rarity: "LEGENDARY", category: "Rank" },
-  { key: "rank_mythic",       name: "Mythic Being",        description: "Reach Mythic rank (Level 145)",               icon: "👑", rarity: "LEGENDARY", category: "Rank" },
-  { key: "rank_transcendent", name: "Transcendent",        description: "Reach max level (Level 150)",                 icon: "👑", rarity: "LEGENDARY", category: "Rank" },
+  { key: "rank_tempered",     name: "Tempered",            description: "Reach Tempered rank (Level 11)",              icon: "🛡️", rarity: "COMMON",    category: "Rank" },
+  { key: "rank_forged",       name: "Forged in Fire",      description: "Reach Forged rank (Level 21)",                icon: "🛡️", rarity: "COMMON",    category: "Rank" },
+  { key: "rank_proven",       name: "Proven Warrior",      description: "Reach Proven rank (Level 31)",                icon: "🛡️", rarity: "UNCOMMON",  category: "Rank" },
+  { key: "rank_adamant",      name: "Adamant Will",        description: "Reach Adamant rank (Level 41)",               icon: "🛡️", rarity: "UNCOMMON",  category: "Rank" },
+  { key: "rank_champion",     name: "Champion Rising",     description: "Reach Champion rank (Level 51)",              icon: "🛡️", rarity: "RARE",      category: "Rank" },
+  { key: "rank_mythic",       name: "Mythic Being",        description: "Reach Mythic rank (Level 61)",                icon: "💎", rarity: "RARE",      category: "Rank" },
+  { key: "rank_titan",        name: "Titan Unleashed",     description: "Reach Titan rank (Level 71)",                 icon: "💎", rarity: "EPIC",      category: "Rank" },
+  { key: "rank_immortal",     name: "Immortal",            description: "Reach Immortal rank (Level 81)",              icon: "💎", rarity: "EPIC",      category: "Rank" },
+  { key: "rank_ascended",     name: "Ascended",            description: "Reach Ascended rank (Level 91)",              icon: "👑", rarity: "LEGENDARY", category: "Rank" },
+  { key: "rank_max",          name: "Perfection",          description: "Reach max level (Level 100)",                 icon: "👑", rarity: "LEGENDARY", category: "Rank" },
 
   // ── XP ──
   { key: "xp_1000",           name: "First Thousand",      description: "Earn 1,000 total XP",                         icon: "⚡", rarity: "COMMON",    category: "XP" },
@@ -158,7 +157,7 @@ export async function checkAndAwardAchievements(userId: string, sex: string = "m
     if (completedDates.has(d)) { streak++; check.setDate(check.getDate() - 1); } else break;
   }
 
-  const level = computeLevel(totalXp).level;
+  const level = computeCharacterLevel(totalXp).level;
 
   // Latest session time for early/night check
   const latestStart = xpData && xpData.length > 0 ? xpData[xpData.length - 1]?.started_at : null;
@@ -208,17 +207,16 @@ export async function checkAndAwardAchievements(userId: string, sex: string = "m
   if (startHour !== null && startHour >= 21) await award("night_owl");
 
   // ── Rank ──
-  if (level >= 5)   await award("rank_iron");
-  if (level >= 10)  await award("rank_bronze");
-  if (level >= 20)  await award("rank_silver");
-  if (level >= 35)  await award("rank_gold");
-  if (level >= 50)  await award("rank_platinum");
-  if (level >= 70)  await award("rank_diamond");
-  if (level >= 90)  await award("rank_master");
-  if (level >= 110) await award("rank_grandmaster");
-  if (level >= 130) await award("rank_legend");
-  if (level >= 145) await award("rank_mythic");
-  if (level >= 150) await award("rank_transcendent");
+  if (level >= 11)  await award("rank_tempered");
+  if (level >= 21)  await award("rank_forged");
+  if (level >= 31)  await award("rank_proven");
+  if (level >= 41)  await award("rank_adamant");
+  if (level >= 51)  await award("rank_champion");
+  if (level >= 61)  await award("rank_mythic");
+  if (level >= 71)  await award("rank_titan");
+  if (level >= 81)  await award("rank_immortal");
+  if (level >= 91)  await award("rank_ascended");
+  if (level >= 100) await award("rank_max");
 
   // ── XP ──
   if (totalXp >= 1000)   await award("xp_1000");

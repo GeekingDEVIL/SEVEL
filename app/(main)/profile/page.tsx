@@ -25,7 +25,7 @@ import { rematerializeWeightTrend } from "../../lib/weightTrend";
 import SwipeNav from "../../components/ui/swipe-nav";
 import { getYouSections } from "../../lib/navPills";
 import { useModules } from "../../lib/useModules";
-import { computeLevel, getRank, getNextRank } from "../../lib/levelSystem";
+import { computeCharacterLevel, getRankForLevel, getNextRankDef } from "../../lib/characterEngine";
 import { MODULE_REGISTRY } from "../../lib/modules";
 
 type ProfileData = {
@@ -837,11 +837,11 @@ export default function ProfilePage() {
         await supabase.from("profiles").update({ equipment_access: next, gym_type: null }).eq("id", user.id);
     }
 
-    const levelInfo = computeLevel(totalXp);
-    const rank = getRank(levelInfo.level);
-    const nextRank = getNextRank(levelInfo.level);
+    const levelInfo = computeCharacterLevel(totalXp);
+    const rank = getRankForLevel(levelInfo.level);
+    const nextRank = getNextRankDef(levelInfo.level);
     const goalLabel = GOAL_TYPE_OPTIONS.find((o) => o.value === goals.goal_type)?.label;
-    const RANK_ICONS: Record<string, any> = { INITIATE: Shield, IRON: Shield, BRONZE: ShieldCheck, SILVER: ShieldCheck, GOLD: Star, PLATINUM: Star, DIAMOND: Zap, MASTER: Zap, GRANDMASTER: Crown, LEGEND: Crown, MYTHIC: Crown, TRANSCENDENT: Crown };
+    const RANK_ICONS: Record<string, any> = { Raw: Shield, Tempered: Shield, Forged: ShieldCheck, Proven: ShieldCheck, Adamant: Star, Champion: Star, Mythic: Zap, Titan: Zap, Immortal: Crown, Ascended: Crown };
     const RankIcon = RANK_ICONS[rank.name] ?? Shield;
 
     const profileCompletion = (() => {
@@ -1023,7 +1023,7 @@ export default function ProfilePage() {
 
                                 {/* Rank + Goal tags */}
                                 <div className="flex items-center gap-2 flex-wrap justify-center">
-                                    <span className={`inline-flex items-center gap-1 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md ${rank.bgClass} border ${rank.border} ${rank.color}`}>
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border" style={{ backgroundColor: `${rank.color}10`, borderColor: `${rank.color}40`, color: rank.color }}>
                                         <RankIcon size={10} />
                                         {rank.name}
                                     </span>
@@ -1035,7 +1035,7 @@ export default function ProfilePage() {
                                 </div>
 
                                 {nextRank && (
-                                    <p className="text-[8px] font-mono text-[var(--fg-20)] mt-1.5">Next rank: <span className={rank.color}>{nextRank.name}</span> at Lv. {nextRank.minLevel}</p>
+                                    <p className="text-[8px] font-mono text-[var(--fg-20)] mt-1.5">Next rank: <span style={{ color: rank.color }}>{nextRank.name}</span> at Lv. {nextRank.minLevel}</p>
                                 )}
                             </button>
 

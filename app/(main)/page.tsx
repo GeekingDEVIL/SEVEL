@@ -5,13 +5,11 @@ import { useRouter } from "next/navigation";
 import { Dumbbell, Activity, Flame, Zap, HeartPulse, Trophy, Award, Bell, ChevronRight, TrendingUp, Target, Play, Calendar, Droplets, AlertCircle, BarChart3, Sparkles, ShieldAlert, Check } from "lucide-react";
 import { motion } from "framer-motion";
 import { supabase } from "../lib/supabase";
-import { computeLevel, getRank, getNextRank } from "../lib/levelSystem";
+import { computeCharacterLevel, getRankForLevel, getNextRankDef } from "../lib/characterEngine";
 import { useAuth } from "../lib/AuthProvider";
 import { getFullCalorieSummary, ageFromDOB, type CalorieSummary, type GoalType, type ActivityLevel, type DietPreference, type Sex } from "../lib/calorieEngine";
 import { estimateObservedTdee, blendTdee } from "../lib/energyEstimator";
-import { rematerializeDailyIntake } from "../lib/intakeLog";
-import { Plus } from "lucide-react";
-import { staggerContainer, staggerItem, fadeInUp } from "../lib/motion";
+import { staggerContainer, staggerItem } from "../lib/motion";
 import { useSex } from "../lib/useSex";
 import { useUnits } from "../lib/useUnits";
 import { formatWeight, kgToUnit } from "../lib/units";
@@ -102,10 +100,10 @@ export default function Dashboard() {
   });
   const [statsLoaded, setStatsLoaded] = useState(false);
 
-  const levelInfo = computeLevel(stats.totalXp);
+  const levelInfo = computeCharacterLevel(stats.totalXp);
   const level = levelInfo.level;
-  const rank = getRank(level);
-  const nextRank = getNextRank(level);
+  const rank = getRankForLevel(level);
+  const nextRank = getNextRankDef(level);
 
   const [notifications, setNotifications] = useState<any[]>([]);
   const [notifLoaded, setNotifLoaded] = useState(false);
@@ -124,13 +122,6 @@ export default function Dashboard() {
     e.currentTarget.addEventListener("touchcancel", resume, { once: true });
   }, []);
 
-  const [showQuickLog, setShowQuickLog] = useState(false);
-  const [qlLabel, setQlLabel] = useState("");
-  const [qlKcal, setQlKcal] = useState("");
-  const [qlProtein, setQlProtein] = useState("");
-  const [qlCarbs, setQlCarbs] = useState("");
-  const [qlFat, setQlFat] = useState("");
-  const [qlSaving, setQlSaving] = useState(false);
 
   // Dashboard intelligence cards
   const [insight, setInsight] = useState<string | null>(null);
@@ -595,6 +586,7 @@ export default function Dashboard() {
           })
         : baseSummary;
       setCalorieSummary(summary);
+      try { localStorage.setItem("sevel_calorie_target", String(summary.calorieTarget)); } catch {}
 
       const todayStr = toDateString(new Date());
       const { data: di } = await supabase
@@ -900,28 +892,6 @@ export default function Dashboard() {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
   }
 
-  async function handleQuickLog() {
-    if (!user || !qlKcal) return;
-    setQlSaving(true);
-    const dateStr = toDateString(new Date());
-    await supabase.from("food_entries").insert({
-      user_id: user.id,
-      date: dateStr,
-      meal_slot: "snack",
-      label: qlLabel.trim() || null,
-      kcal: Number(qlKcal),
-      protein_g: Number(qlProtein) || 0,
-      carbs_g: Number(qlCarbs) || 0,
-      fat_g: Number(qlFat) || 0,
-      sex: userSex,
-    });
-    await rematerializeDailyIntake(user.id, dateStr, userSex);
-    const { data: di } = await supabase.from("daily_intake").select("kcal, protein_g, carbs_g, fat_g").eq("user_id", user.id).eq("date", dateStr).eq("sex", userSex).limit(1);
-    if (di?.[0]) setTodayIntake({ kcal: di[0].kcal, protein_g: Number(di[0].protein_g), carbs_g: Number(di[0].carbs_g), fat_g: Number(di[0].fat_g) });
-    setQlLabel(""); setQlKcal(""); setQlProtein(""); setQlCarbs(""); setQlFat("");
-    setShowQuickLog(false);
-    setQlSaving(false);
-  }
 
   function handleTodayAction() {
     if (todayPlan?.completed) {
@@ -1145,7 +1115,7 @@ export default function Dashboard() {
                   <div>
                     <p className="text-xs font-semibold text-[var(--fg-70)]">Level {level}</p>
                     <p className="text-[9px] font-mono text-[var(--fg-25)]">
-                      <span className={rank.color}>{rank.name}</span>
+                      <span style={{ color: rank.color }}>{rank.name}</span>
                       {nextRank && <span className="text-[var(--fg-15)]"> · {nextRank.name} at Lv.{nextRank.minLevel}</span>}
                     </p>
                   </div>
@@ -1157,8 +1127,8 @@ export default function Dashboard() {
                       {stats.goal}
                     </span>
                   )}
-                  <span className={`flex items-center gap-1 px-2 py-0.5 rounded-md border text-[8px] font-mono tracking-wider ${rank.color}`}
-                    style={{ borderColor: `${rank.glow?.replace("0.6", "0.3") ?? "var(--fg-10)"}`, backgroundColor: `${rank.glow?.replace("0.6", "0.06") ?? "var(--fg-03)"}` }}
+                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-md border text-[8px] font-mono tracking-wider"
+                    style={{ color: rank.color, borderColor: `${rank.color}40`, backgroundColor: `${rank.color}10` }}
                   >
                     <Award size={8} />
                     {rank.name}
@@ -1601,67 +1571,51 @@ export default function Dashboard() {
           );
         })()}
 
-        {/* ─── Energy Dashboard ─── */}
+        {/* ─── Tracking: Calories + Macros ─── */}
         {isEnabled("nutrition") && calorieSummary && (() => {
           const eaten = todayIntake?.kcal ?? 0;
           const target = calorieSummary.calorieTarget;
-          const remaining = target - eaten;
+          const remaining = Math.max(0, target - eaten);
           const pct = Math.min((eaten / target) * 100, 100);
           const over = eaten > target;
           return (
-            <motion.div variants={staggerItem} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-40px" }} transition={{ duration: 0.4, delay: 0.15 }} className="rounded-2xl border p-4" style={{ order: cardOrder.energyOrder, borderColor: `rgb(${MODULE_REGISTRY.nutrition.colorRgb} / 0.2)`, background: `linear-gradient(135deg, rgb(${MODULE_REGISTRY.nutrition.colorRgb} / 0.05), var(--fg-03))`, boxShadow: `0 0 25px -5px rgb(${MODULE_REGISTRY.nutrition.colorRgb} / 0.12), inset 0 1px 0 rgb(${MODULE_REGISTRY.nutrition.colorRgb} / 0.06)` }}>
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Flame size={14} style={{ color: `rgb(${MODULE_REGISTRY.nutrition.colorRgb})` }} />
-                  <p className="text-[9px] font-mono tracking-widest" style={{ color: `rgb(${MODULE_REGISTRY.nutrition.colorRgb} / 0.5)` }}>ENERGY</p>
-                </div>
-                <button onClick={() => setShowQuickLog(!showQuickLog)} className="flex items-center gap-1 text-[9px] font-mono text-[rgb(var(--accent-rgb)/0.6)] hover:text-[rgb(var(--accent-rgb))] transition">
-                  <Plus size={10} /> Log Food
-                </button>
-              </div>
-              <div className="flex items-baseline justify-between mb-2">
-                <div className="flex items-baseline gap-1">
-                  <span className="text-3xl font-bold font-mono text-[rgb(var(--accent-light-rgb))]">{remaining > 0 ? remaining : 0}</span>
-                  <span className="text-xs font-mono text-[var(--fg-25)]">kcal left</span>
-                </div>
-                <span className="text-[9px] font-mono text-[var(--fg-20)]">{eaten} / {target}</span>
-              </div>
-              <div className="h-2 rounded-full bg-[var(--fg-06)] mb-3 overflow-hidden">
-                <motion.div className={`h-full rounded-full ${over ? "bg-red-400" : "bg-[rgb(var(--accent-rgb))]"}`} initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.8, ease: "easeOut" }} />
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { l: "PROTEIN", v: Math.round(todayIntake?.protein_g ?? 0), t: calorieSummary.macros.protein, c: "text-rose-300" },
-                  { l: "CARBS", v: Math.round(todayIntake?.carbs_g ?? 0), t: calorieSummary.macros.carbs, c: "text-amber-300" },
-                  { l: "FAT", v: Math.round(todayIntake?.fat_g ?? 0), t: calorieSummary.macros.fat, c: "text-blue-300" },
-                ].map((m) => (
-                  <div key={m.l} className="rounded-lg bg-[var(--fg-03)] border border-[var(--fg-06)] p-2 text-center">
-                    <p className="text-[8px] font-mono text-[var(--fg-25)]">{m.l}</p>
-                    <p className={`text-sm font-bold font-mono ${m.c}`}>{m.v}<span className="text-[var(--fg-20)]">/{m.t}g</span></p>
+            <motion.div variants={staggerItem} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-40px" }} transition={{ duration: 0.4, delay: 0.08 }} className="rounded-2xl border border-[var(--fg-08)] bg-[var(--fg-02)] overflow-hidden" style={{ order: cardOrder.energyOrder }}>
+              <div className="grid grid-cols-4 gap-px bg-[var(--fg-05)]">
+                <div className="bg-[var(--fg-02)] p-3 cursor-pointer active:scale-[0.97] transition" onClick={() => { triggerHaptic("light"); router.push("/progress/intake"); }}>
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <Flame size={10} style={{ color: `rgb(${MODULE_REGISTRY.nutrition.colorRgb})` }} />
+                    <p className="text-[7px] font-mono tracking-wider text-[var(--fg-25)]">KCAL</p>
                   </div>
-                ))}
-              </div>
-              {showQuickLog && (
-                <div className="mt-3 pt-3 border-t border-[var(--fg-06)] space-y-2">
-                  <input type="text" value={qlLabel} onChange={(e) => setQlLabel(e.target.value)} placeholder="What did you eat?" className="w-full h-9 rounded-lg bg-[var(--fg-04)] border border-[var(--fg-08)] px-3 text-sm font-mono focus:outline-none focus:border-[rgb(var(--accent-rgb)/0.4)] transition placeholder:text-[var(--fg-15)]" />
-                  <div className="grid grid-cols-4 gap-2">
-                    {[
-                      { l: "KCAL *", v: qlKcal, s: setQlKcal, c: "" },
-                      { l: "PROT", v: qlProtein, s: setQlProtein, c: "text-rose-300/50" },
-                      { l: "CARB", v: qlCarbs, s: setQlCarbs, c: "text-amber-300/50" },
-                      { l: "FAT", v: qlFat, s: setQlFat, c: "text-blue-300/50" },
-                    ].map((f) => (
-                      <div key={f.l}>
-                        <label className={`text-[8px] font-mono block mb-1 ${f.c || "text-[var(--fg-30)]"}`}>{f.l}</label>
-                        <input type="number" min="0" inputMode="numeric" onWheel={(e) => (e.target as HTMLElement).blur()} value={f.v} onChange={(e) => f.s(e.target.value)} placeholder="—" className="w-full h-9 rounded-lg bg-[var(--fg-04)] border border-[var(--fg-08)] text-center text-sm font-mono focus:outline-none focus:border-[rgb(var(--accent-rgb)/0.4)] transition placeholder:text-[var(--fg-15)]" />
-                      </div>
-                    ))}
+                  <p className={`text-xl font-bold font-mono ${over ? "text-red-400" : "text-[var(--fg-90)]"}`}>{remaining}<span className="text-[9px] text-[var(--fg-25)]"> left</span></p>
+                  <div className="h-1 rounded-full bg-[var(--fg-06)] overflow-hidden mt-1.5">
+                    <motion.div className={`h-full rounded-full ${over ? "bg-red-400/60" : ""}`} style={over ? {} : { background: `rgb(${MODULE_REGISTRY.nutrition.colorRgb} / 0.5)` }} initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.6, ease: "easeOut" }} />
                   </div>
-                  <button onClick={handleQuickLog} disabled={!qlKcal || qlSaving} className="w-full py-2 rounded-lg bg-[rgb(var(--accent-rgb))] text-black text-xs font-semibold hover:brightness-110 disabled:opacity-40 transition">
-                    {qlSaving ? "Saving..." : "Log Entry"}
-                  </button>
                 </div>
-              )}
+                <div className="bg-[var(--fg-02)] p-3 cursor-pointer active:scale-[0.97] transition" onClick={() => { triggerHaptic("light"); router.push("/progress/intake"); }}>
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-rose-400/70" />
+                    <p className="text-[7px] font-mono tracking-wider text-[var(--fg-25)]">PROT</p>
+                  </div>
+                  <p className="text-xl font-bold font-mono text-[var(--fg-90)]">{Math.round(todayIntake?.protein_g ?? 0)}<span className="text-[9px] text-[var(--fg-25)]">g</span></p>
+                  <p className="text-[8px] font-mono text-[var(--fg-18)] mt-0.5">/ {calorieSummary.macros.protein}g</p>
+                </div>
+                <div className="bg-[var(--fg-02)] p-3 cursor-pointer active:scale-[0.97] transition" onClick={() => { triggerHaptic("light"); router.push("/progress/intake"); }}>
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-amber-400/70" />
+                    <p className="text-[7px] font-mono tracking-wider text-[var(--fg-25)]">CARB</p>
+                  </div>
+                  <p className="text-xl font-bold font-mono text-[var(--fg-90)]">{Math.round(todayIntake?.carbs_g ?? 0)}<span className="text-[9px] text-[var(--fg-25)]">g</span></p>
+                  <p className="text-[8px] font-mono text-[var(--fg-18)] mt-0.5">/ {calorieSummary.macros.carbs}g</p>
+                </div>
+                <div className="bg-[var(--fg-02)] p-3 cursor-pointer active:scale-[0.97] transition" onClick={() => { triggerHaptic("light"); router.push("/progress/intake"); }}>
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-blue-400/70" />
+                    <p className="text-[7px] font-mono tracking-wider text-[var(--fg-25)]">FAT</p>
+                  </div>
+                  <p className="text-xl font-bold font-mono text-[var(--fg-90)]">{Math.round(todayIntake?.fat_g ?? 0)}<span className="text-[9px] text-[var(--fg-25)]">g</span></p>
+                  <p className="text-[8px] font-mono text-[var(--fg-18)] mt-0.5">/ {calorieSummary.macros.fat}g</p>
+                </div>
+              </div>
             </motion.div>
           );
         })()}

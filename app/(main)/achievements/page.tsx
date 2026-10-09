@@ -13,7 +13,7 @@ import { getSocialSections } from "../../lib/navPills";
 import { useModules } from "../../lib/useModules";
 import { useSex } from "../../lib/useSex";
 import { staggerContainer, staggerItem } from "../../lib/motion";
-import { computeLevel } from "../../lib/levelSystem";
+import { computeCharacterLevel } from "../../lib/characterEngine";
 import OnboardingTooltip from "../../components/ui/onboarding-tooltip";
 
 type ProgressStats = {
@@ -84,7 +84,7 @@ export default function AchievementsPage() {
         volume: statsRow?.total_volume ?? 0,
         exercises: new Set((exData ?? []).map((e: any) => e.exercise_id)).size,
         xp: totalXp,
-        level: computeLevel(totalXp).level,
+        level: computeCharacterLevel(totalXp).level,
       });
       setLoading(false);
     }

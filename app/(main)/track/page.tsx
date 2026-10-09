@@ -35,6 +35,7 @@ import { useUnits } from "../../lib/useUnits";
 import { formatWeight, weightInputToKg } from "../../lib/units";
 import { rematerializeWeightTrend } from "../../lib/weightTrend";
 import { rematerializeDailyIntake, type MealSlot } from "../../lib/intakeLog";
+import { getFullCalorieSummary, ageFromDOB, type GoalType, type ActivityLevel, type DietPreference } from "../../lib/calorieEngine";
 import { supabase } from "../../lib/supabase";
 import { staggerContainer, staggerItem } from "../../lib/motion";
 
@@ -300,6 +301,13 @@ export default function TrackHub() {
   const weightInputRef = useRef<HTMLInputElement>(null);
   const [mealOpen, setMealOpen] = useState(false);
   const [mealLogging, setMealLogging] = useState(false);
+  const [detailedLogOpen, setDetailedLogOpen] = useState(false);
+  const [dlLabel, setDlLabel] = useState("");
+  const [dlKcal, setDlKcal] = useState("");
+  const [dlProtein, setDlProtein] = useState("");
+  const [dlCarbs, setDlCarbs] = useState("");
+  const [dlFat, setDlFat] = useState("");
+  const [dlSaving, setDlSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -348,7 +356,7 @@ export default function TrackHub() {
         supabase.from("water_logs").select("amount_ml, logged_at").eq("user_id", user.id).gte("logged_at", todayStart),
         supabase.from("habits").select("id").eq("user_id", user.id).eq("is_active", true),
         supabase.from("habit_completions").select("habit_id").eq("user_id", user.id).eq("date", todayStr),
-        supabase.from("food_entries").select("kcal, protein_g, carbs_g, fat_g, logged_at, label").eq("user_id", user.id).gte("logged_at", todayStart),
+        supabase.from("food_entries").select("kcal, protein_g, carbs_g, fat_g, logged_at, label").eq("user_id", user.id).eq("sex", userSex).gte("logged_at", todayStart),
         supabase.from("workout_sessions").select("id, title, completed_at, duration_seconds").eq("user_id", user.id).eq("status", "completed").eq("sex", userSex).eq("date", todayStr),
         supabase.from("exercise_leaderboard").select("exercise_name, best_weight, updated_at").eq("user_id", user.id).eq("sex", userSex).order("updated_at", { ascending: false }).limit(1),
         userSex === "female"
@@ -541,12 +549,33 @@ export default function TrackHub() {
         if (daysSincePr < 7) weeklyPrs = 1;
       }
 
-      // Calorie target
+      // Calorie target — compute from engine, fall back to localStorage
       let todayCalorieTarget = 2500;
       try {
         const stored = localStorage.getItem("sevel_calorie_target");
         if (stored) todayCalorieTarget = Number(stored) || 2500;
       } catch { /* ignore */ }
+      const [{ data: tProf }, { data: tBody }, { data: tGoal }] = await Promise.all([
+        supabase.from("profiles").select("date_of_birth").eq("id", user.id).maybeSingle(),
+        supabase.from("profile_body_stats").select("height_cm, activity_level").eq("user_id", user.id).eq("sex", userSex).maybeSingle(),
+        supabase.from("user_goals").select("*").eq("user_id", user.id).eq("sex", userSex).eq("is_active", true).limit(1),
+      ]);
+      if (cancelled) return;
+      if (tProf?.date_of_birth && tBody?.height_cm && bw) {
+        const g = (tGoal as any)?.[0];
+        const summary = getFullCalorieSummary({
+          weightKg: bw,
+          heightCm: tBody.height_cm,
+          ageYears: ageFromDOB(tProf.date_of_birth),
+          sex: userSex,
+          activity: (tBody.activity_level as ActivityLevel) ?? "moderate",
+          goalType: (g?.goal_type as GoalType) ?? "general_fitness",
+          ratePerWeekKg: g?.rate_per_week_kg ?? undefined,
+          diet: (g?.diet_preference as DietPreference) ?? "balanced",
+          calorieOverride: g?.calorie_target_override ?? undefined,
+        });
+        todayCalorieTarget = summary.calorieTarget;
+      }
 
       // Timeline items
       const timelineItems: TimelineItem[] = [];
@@ -835,6 +864,36 @@ export default function TrackHub() {
     setMealLogging(false);
     setMealOpen(false);
     setWaterToast(false);
+  }
+
+  async function handleDetailedLog() {
+    if (!user || !dlKcal) return;
+    setDlSaving(true);
+    const today = toDateString(new Date());
+    await supabase.from("food_entries").insert({
+      user_id: user.id,
+      date: today,
+      meal_slot: currentMealSlot,
+      label: dlLabel.trim() || null,
+      kcal: Number(dlKcal),
+      protein_g: Number(dlProtein) || 0,
+      carbs_g: Number(dlCarbs) || 0,
+      fat_g: Number(dlFat) || 0,
+      sex: userSex,
+    });
+    await rematerializeDailyIntake(user.id, today, userSex);
+    if (hub) {
+      setHub({
+        ...hub,
+        todayCalories: hub.todayCalories + Number(dlKcal),
+        todayProtein: hub.todayProtein + (Number(dlProtein) || 0),
+        todayCarbs: hub.todayCarbs + (Number(dlCarbs) || 0),
+        todayFat: hub.todayFat + (Number(dlFat) || 0),
+      });
+    }
+    setDlLabel(""); setDlKcal(""); setDlProtein(""); setDlCarbs(""); setDlFat("");
+    setDlSaving(false);
+    setDetailedLogOpen(false);
   }
 
   const volChange = useMemo(() => {
@@ -1215,12 +1274,54 @@ export default function TrackHub() {
                       </div>
 
                       <button
-                        onClick={() => router.push("/progress/intake")}
+                        onClick={() => setDetailedLogOpen(!detailedLogOpen)}
                         className="w-full text-center text-[12px] font-medium py-2 rounded-lg active:scale-[0.98] transition"
                         style={{ color: "rgb(249 115 22)" }}
                       >
-                        Detailed log →
+                        {detailedLogOpen ? "Close" : "Detailed log →"}
                       </button>
+
+                      {detailedLogOpen && (
+                        <div className="space-y-2 pt-2 border-t border-[var(--fg-06)]">
+                          <input
+                            type="text"
+                            value={dlLabel}
+                            onChange={(e) => setDlLabel(e.target.value)}
+                            placeholder="What did you eat?"
+                            className="w-full h-9 rounded-lg bg-[var(--fg-04)] border border-[var(--fg-08)] px-3 text-sm font-mono focus:outline-none focus:border-[rgb(var(--accent-rgb)/0.4)] transition placeholder:text-[var(--fg-15)]"
+                          />
+                          <div className="grid grid-cols-4 gap-2">
+                            {[
+                              { l: "KCAL *", v: dlKcal, s: setDlKcal, c: "text-[var(--fg-30)]" },
+                              { l: "PROT", v: dlProtein, s: setDlProtein, c: "text-rose-300/50" },
+                              { l: "CARB", v: dlCarbs, s: setDlCarbs, c: "text-amber-300/50" },
+                              { l: "FAT", v: dlFat, s: setDlFat, c: "text-blue-300/50" },
+                            ].map((f) => (
+                              <div key={f.l}>
+                                <label className={`text-[8px] font-mono block mb-1 ${f.c}`}>{f.l}</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  inputMode="numeric"
+                                  onWheel={(e) => (e.target as HTMLElement).blur()}
+                                  value={f.v}
+                                  onChange={(e) => f.s(e.target.value)}
+                                  placeholder="—"
+                                  className="w-full h-9 rounded-lg bg-[var(--fg-04)] border border-[var(--fg-08)] text-center text-sm font-mono focus:outline-none focus:border-[rgb(var(--accent-rgb)/0.4)] transition placeholder:text-[var(--fg-15)]"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                          <button
+                            onClick={handleDetailedLog}
+                            disabled={!dlKcal || dlSaving}
+                            className="w-full py-2 rounded-lg text-xs font-semibold hover:brightness-110 disabled:opacity-40 transition"
+                            style={{ background: "rgb(249 115 22)", color: "black" }}
+                          >
+                            {dlSaving ? "Saving..." : "Log Entry"}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1319,13 +1420,7 @@ export default function TrackHub() {
                   <p className="text-[36px] font-bold font-mono text-[var(--fg-90)] leading-none">
                     {hub.todayCalories.toLocaleString()} <span className="text-[15px] font-normal text-[var(--fg-25)]">kcal</span>
                   </p>
-                  <span className="text-[11px] font-mono text-[var(--fg-25)] mt-1.5 block">
-                    {hub.todayCalorieTarget - hub.todayCalories > 0
-                      ? `${(hub.todayCalorieTarget - hub.todayCalories).toLocaleString()} remaining`
-                      : "Target reached"}
-                  </span>
-                  {/* Calorie progress */}
-                  <div className="flex items-center gap-2 mt-3">
+                  <div className="flex items-center gap-2 mt-2">
                     <div className="flex-1 h-[5px] rounded-full bg-[var(--fg-06)] overflow-hidden">
                       <div
                         className="h-full rounded-full transition-all duration-500"
@@ -1335,19 +1430,13 @@ export default function TrackHub() {
                         }}
                       />
                     </div>
-                    <span className="text-[10px] font-mono text-[var(--fg-25)] shrink-0">{Math.round((hub.todayCalories / hub.todayCalorieTarget) * 100)}%</span>
+                    <span className="text-[10px] font-mono text-[var(--fg-25)] shrink-0">
+                      {hub.todayCalorieTarget - hub.todayCalories > 0
+                        ? `${(hub.todayCalorieTarget - hub.todayCalories).toLocaleString()} left`
+                        : "done"}
+                    </span>
                   </div>
-                  {/* Macro bar */}
-                  <div className="flex gap-0.5 mt-2 h-2.5 rounded-full overflow-hidden bg-[var(--fg-06)]">
-                    {hub.todayCalorieTarget > 0 && (
-                      <>
-                        <div style={{ width: `${(hub.todayProtein * 4 / hub.todayCalorieTarget) * 100}%`, backgroundColor: "rgb(239 68 68)" }} className="rounded-full" />
-                        <div style={{ width: `${(hub.todayCarbs * 4 / hub.todayCalorieTarget) * 100}%`, backgroundColor: "rgb(249 115 22)" }} className="rounded-full" />
-                        <div style={{ width: `${(hub.todayFat * 9 / hub.todayCalorieTarget) * 100}%`, backgroundColor: "rgb(59 130 246)" }} className="rounded-full" />
-                      </>
-                    )}
-                  </div>
-                  <div className="flex gap-4 mt-2">
+                  <div className="flex gap-3 mt-2">
                     <span className="text-[10px] font-mono text-[var(--fg-30)]">P {hub.todayProtein}g</span>
                     <span className="text-[10px] font-mono text-[var(--fg-30)]">C {hub.todayCarbs}g</span>
                     <span className="text-[10px] font-mono text-[var(--fg-30)]">F {hub.todayFat}g</span>

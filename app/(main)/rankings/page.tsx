@@ -7,7 +7,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/AuthProvider";
 import { useSex } from "../../lib/useSex";
-import { computeLevel, getRank, getNextRank, RANK_TIERS } from "../../lib/levelSystem";
+import { computeCharacterLevel, getRankForLevel, getNextRankDef, RANKS } from "../../lib/characterEngine";
 import CubeLoader from "../../components/ui/cube-loader";
 import { LeaderboardCard } from "../../components/ui/leaderboard-card";
 import type { LeaderboardRanking as PodiumRanking } from "../../components/ui/leaderboard-podium";
@@ -136,10 +136,10 @@ export default function RankingsPage() {
     loadLeaderboard();
   }, [tab, sortBy, userSex]);
 
-  const levelInfo = computeLevel(totalXp);
-  const currentRank = getRank(levelInfo.level);
-  const nextRank = getNextRank(levelInfo.level);
-  const currentRankIdx = RANK_TIERS.indexOf(currentRank);
+  const levelInfo = computeCharacterLevel(totalXp);
+  const currentRank = getRankForLevel(levelInfo.level);
+  const nextRank = getNextRankDef(levelInfo.level);
+  const currentRankIdx = RANKS.indexOf(currentRank);
   const levelsToNextRank = nextRank ? nextRank.minLevel - levelInfo.level : 0;
   const currentRankSpan = nextRank ? nextRank.minLevel - currentRank.minLevel : 1;
   const levelsIntoCurrentRank = levelInfo.level - currentRank.minLevel;
@@ -156,7 +156,7 @@ export default function RankingsPage() {
 
   const tierIcon = (idx: number) => idx >= 10 ? "👑" : idx >= 7 ? "💎" : idx >= 4 ? "🛡️" : idx >= 1 ? "⚔️" : "📋";
 
-  const nearbyTiers = RANK_TIERS.slice(Math.max(0, currentRankIdx - 1), currentRankIdx + 3);
+  const nearbyTiers = RANKS.slice(Math.max(0, currentRankIdx - 1), currentRankIdx + 3);
 
   return (
     <main className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] pb-24 md:pb-10 relative">
@@ -180,18 +180,18 @@ export default function RankingsPage() {
           <motion.div key="personal" className="space-y-4" variants={tabContent} initial="hidden" animate="visible" exit="exit">
             {/* Hero rank card */}
             <div
-              className={`relative rounded-2xl border-2 ${currentRank.border} overflow-hidden`}
-              style={{ boxShadow: `0 0 40px -8px ${currentRank.glow}, inset 0 1px 0 var(--fg-06)` }}
+              className="relative rounded-2xl border-2 overflow-hidden"
+              style={{ borderColor: `${currentRank.color}40`, boxShadow: `0 0 40px -8px ${currentRank.color}60, inset 0 1px 0 var(--fg-06)` }}
             >
-              <div className={`absolute inset-0 ${currentRank.bgClass} opacity-30`} />
+              <div className="absolute inset-0 opacity-30" style={{ backgroundColor: `${currentRank.color}10` }} />
               <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[var(--bg-primary)]" />
               <div className="relative px-5 pt-6 pb-5">
                 <div className="flex items-center gap-4">
-                  <div className={`w-16 h-16 rounded-2xl border-2 ${currentRank.border} ${currentRank.bgClass} flex items-center justify-center`} style={{ boxShadow: `0 0 20px -4px ${currentRank.glow}` }}>
+                  <div className="w-16 h-16 rounded-2xl border-2 flex items-center justify-center" style={{ borderColor: `${currentRank.color}40`, backgroundColor: `${currentRank.color}10`, boxShadow: `0 0 20px -4px ${currentRank.color}60` }}>
                     <span className="text-3xl">{tierIcon(currentRankIdx)}</span>
                   </div>
                   <div className="flex-1">
-                    <p className={`text-2xl font-bold tracking-wider ${currentRank.color}`}>{currentRank.name}</p>
+                    <p className="text-2xl font-bold tracking-wider" style={{ color: currentRank.color }}>{currentRank.name}</p>
                     <p className="text-[11px] font-mono text-[var(--fg-40)] mt-0.5">Level {levelInfo.level}</p>
                   </div>
                   <div className="text-right">
@@ -218,12 +218,12 @@ export default function RankingsPage() {
                 {nextRank && (
                   <div className="mt-4 pt-4 border-t border-[var(--fg-06)]">
                     <div className="flex items-center justify-between text-[9px] font-mono mb-1.5">
-                      <span className={currentRank.color}>{currentRank.name}</span>
+                      <span style={{ color: currentRank.color }}>{currentRank.name}</span>
                       <span className="text-[var(--fg-20)]">{levelsToNextRank} levels to rank up</span>
-                      <span style={{ color: nextRank.glow }}>{nextRank.name}</span>
+                      <span style={{ color: nextRank.color }}>{nextRank.name}</span>
                     </div>
                     <div className="h-1.5 rounded-full bg-[var(--fg-06)] overflow-hidden">
-                      <div className="h-full rounded-full transition-all" style={{ width: `${rankProgress}%`, background: `linear-gradient(90deg, ${currentRank.glow}, ${nextRank.glow})` }} />
+                      <div className="h-full rounded-full transition-all" style={{ width: `${rankProgress}%`, background: `linear-gradient(90deg, ${currentRank.color}, ${nextRank.color})` }} />
                     </div>
                   </div>
                 )}
@@ -263,28 +263,28 @@ export default function RankingsPage() {
                 </button>
               </div>
               <div className="space-y-1.5">
-                {(showAllTiers ? [...RANK_TIERS].reverse() : nearbyTiers.reverse()).map((tier) => {
-                  const idx = RANK_TIERS.indexOf(tier);
+                {(showAllTiers ? [...RANKS].reverse() : nearbyTiers.reverse()).map((tier) => {
+                  const idx = RANKS.indexOf(tier);
                   const isCurrentTier = tier.name === currentRank.name;
                   const isUnlocked = levelInfo.level >= tier.minLevel;
-                  const nextTier = idx < RANK_TIERS.length - 1 ? RANK_TIERS[idx + 1] : null;
+                  const nextTier = idx < RANKS.length - 1 ? RANKS[idx + 1] : null;
                   return (
                     <div
                       key={tier.name}
-                      className={`flex items-center gap-3 rounded-xl border p-3 transition ${isCurrentTier ? `${tier.border} ${tier.bgClass}` : isUnlocked ? "border-[var(--fg-06)] bg-[var(--fg-02)]" : "border-[var(--fg-04)] bg-[var(--fg-01)] opacity-40"}`}
-                      style={isCurrentTier ? { boxShadow: `0 0 16px -6px ${tier.glow}` } : undefined}
+                      className={`flex items-center gap-3 rounded-xl border p-3 transition ${isCurrentTier ? "" : isUnlocked ? "border-[var(--fg-06)] bg-[var(--fg-02)]" : "border-[var(--fg-04)] bg-[var(--fg-01)] opacity-40"}`}
+                      style={isCurrentTier ? { borderColor: `${tier.color}40`, backgroundColor: `${tier.color}10`, boxShadow: `0 0 16px -6px ${tier.color}60` } : undefined}
                     >
-                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 text-base ${isUnlocked ? `${tier.bgClass} border ${tier.border}` : "bg-[var(--fg-03)] border border-[var(--fg-06)]"}`}>
+                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 text-base border ${!isUnlocked ? "bg-[var(--fg-03)] border-[var(--fg-06)]" : ""}`} style={isUnlocked ? { backgroundColor: `${tier.color}10`, borderColor: `${tier.color}40` } : undefined}>
                         {isUnlocked ? tierIcon(idx) : <Lock size={12} className="text-[var(--fg-20)]" />}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <p className={`text-[13px] font-bold ${isUnlocked ? tier.color : "text-[var(--fg-25)]"}`}>{tier.name}</p>
+                          <p className={`text-[13px] font-bold ${!isUnlocked ? "text-[var(--fg-25)]" : ""}`} style={isUnlocked ? { color: tier.color } : undefined}>{tier.name}</p>
                           {isCurrentTier && (
                             <span className="text-[7px] font-mono px-1.5 py-0.5 rounded-full bg-[rgb(var(--accent-rgb)/0.15)] border border-[rgb(var(--accent-rgb)/0.3)] text-[rgb(var(--accent-light-rgb))]">YOU</span>
                           )}
                         </div>
-                        <p className="text-[9px] font-mono text-[var(--fg-25)]">Level {tier.minLevel}{nextTier ? `–${nextTier.minLevel - 1}` : "+"}</p>
+                        <p className="text-[9px] font-mono text-[var(--fg-25)]">Level {tier.minLevel}–{tier.maxLevel}</p>
                       </div>
                       <div className="shrink-0">
                         {isCurrentTier ? (
@@ -354,7 +354,7 @@ export default function RankingsPage() {
             </div>
 
             {(() => {
-              const presentTiers = Array.from(new Set(leaderboard.map((e) => getRank(e.level).name)));
+              const presentTiers = Array.from(new Set(leaderboard.map((e) => getRankForLevel(e.level).name)));
               if (presentTiers.length <= 1) return null;
               return (
                 <div className="flex flex-wrap gap-1.5">
@@ -365,13 +365,14 @@ export default function RankingsPage() {
                     ALL TIERS
                   </button>
                   {presentTiers.map((t) => {
-                    const tier = RANK_TIERS.find((r) => r.name === t)!;
+                    const tier = RANKS.find((r) => r.name === t)!;
                     const active = tierFilter === t;
                     return (
                       <button
                         key={t}
                         onClick={() => setTierFilter(active ? "all" : t)}
-                        className={`text-[9px] font-mono px-2.5 py-1 rounded-full border transition ${active ? `${tier.border} ${tier.bgClass} ${tier.color}` : "border-[var(--fg-06)] text-[var(--fg-30)] hover:text-[var(--fg-55)]"}`}
+                        className={`text-[9px] font-mono px-2.5 py-1 rounded-full border transition ${!active ? "border-[var(--fg-06)] text-[var(--fg-30)] hover:text-[var(--fg-55)]" : ""}`}
+                        style={active ? { borderColor: `${tier.color}40`, backgroundColor: `${tier.color}10`, color: tier.color } : undefined}
                       >
                         {t}
                       </button>
@@ -383,7 +384,7 @@ export default function RankingsPage() {
 
             {lbLoading ? (
               <CubeLoader message="Loading leaderboard…" />
-            ) : leaderboard.filter((e) => (tierFilter === "all" || getRank(e.level).name === tierFilter) && (!lbSearch.trim() || e.username?.toLowerCase().includes(lbSearch.trim().toLowerCase()))).length === 0 ? (
+            ) : leaderboard.filter((e) => (tierFilter === "all" || getRankForLevel(e.level).name === tierFilter) && (!lbSearch.trim() || e.username?.toLowerCase().includes(lbSearch.trim().toLowerCase()))).length === 0 ? (
               <div className="text-center py-16">
                 <div className="w-14 h-14 mx-auto mb-4 rounded-2xl glass-card flex items-center justify-center">
                   <Users size={24} className="text-[var(--fg-15)]" />
@@ -408,10 +409,10 @@ export default function RankingsPage() {
 
               const filteredEntries = leaderboard
                 .map((entry, i) => ({ entry, realRank: i + 1 }))
-                .filter(({ entry }) => (tierFilter === "all" || getRank(entry.level).name === tierFilter) && (!lbSearch.trim() || entry.username?.toLowerCase().includes(lbSearch.trim().toLowerCase())));
+                .filter(({ entry }) => (tierFilter === "all" || getRankForLevel(entry.level).name === tierFilter) && (!lbSearch.trim() || entry.username?.toLowerCase().includes(lbSearch.trim().toLowerCase())));
 
               const allRankings: LeaderboardRankingItem[] = filteredEntries.map(({ entry, realRank }) => {
-                const rank = getRank(entry.level);
+                const rank = getRankForLevel(entry.level);
                 return {
                   userId: entry.user_id,
                   rank: realRank,

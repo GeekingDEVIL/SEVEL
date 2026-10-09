@@ -10,7 +10,7 @@ import { useModules } from "../../lib/useModules";
 import { useAuth } from "../../lib/AuthProvider";
 import { useSex } from "../../lib/useSex";
 import { supabase } from "../../lib/supabase";
-import { computeLevel, getRank } from "../../lib/levelSystem";
+import { computeCharacterLevel, getRankForLevel } from "../../lib/characterEngine";
 import { staggerContainer, staggerItem } from "../../lib/motion";
 
 type Achievement = {
@@ -98,7 +98,7 @@ export default function SocialHub() {
         user_id: e.user_id,
         display_name: profileMap[e.user_id] || "Challenger",
         total_xp: e.total_xp ?? 0,
-        level: computeLevel(e.total_xp ?? 0).level,
+        level: computeCharacterLevel(e.total_xp ?? 0).level,
       }));
       setLeaderboard(top5);
 
@@ -115,8 +115,8 @@ export default function SocialHub() {
     return () => { cancelled = true; };
   }, [user, userSex]);
 
-  const levelInfo = computeLevel(totalXp);
-  const rank = getRank(levelInfo.level);
+  const levelInfo = computeCharacterLevel(totalXp);
+  const rank = getRankForLevel(levelInfo.level);
 
   const RANK_ICONS = [Crown, Medal, Medal];
   const RANK_COLORS = ["text-yellow-400", "text-gray-300", "text-amber-600"];
@@ -168,7 +168,7 @@ export default function SocialHub() {
                 <span className="text-xs font-mono text-[var(--fg-25)]">XP</span>
               </div>
               <p className="text-[10px] font-mono text-[var(--fg-30)] mt-0.5">
-                <span className={rank.color}>{rank.name}</span>
+                <span style={{ color: rank.color }}>{rank.name}</span>
                 <span className="text-[var(--fg-15)]"> · {levelInfo.isMaxLevel ? "MAX" : `${levelInfo.xpIntoCurrentLevel}/${levelInfo.xpNeededForNext}`}</span>
               </p>
             </div>
@@ -217,7 +217,7 @@ export default function SocialHub() {
                 const isMe = entry.user_id === user?.id;
                 const RankIcon = i < 3 ? RANK_ICONS[i] : null;
                 const rankColor = i < 3 ? RANK_COLORS[i] : "";
-                const entryRank = getRank(entry.level);
+                const entryRank = getRankForLevel(entry.level);
                 return (
                   <div
                     key={entry.user_id}
@@ -237,7 +237,7 @@ export default function SocialHub() {
                         {isMe ? "You" : entry.display_name}
                       </p>
                     </div>
-                    <span className={`text-[9px] font-mono ${entryRank.color} shrink-0`}>{entryRank.name}</span>
+                    <span className="text-[9px] font-mono shrink-0" style={{ color: entryRank.color }}>{entryRank.name}</span>
                     <span className="text-xs font-mono text-[var(--fg-30)] w-14 text-right shrink-0">
                       {entry.total_xp.toLocaleString()}
                     </span>
