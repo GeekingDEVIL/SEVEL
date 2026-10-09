@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Dumbbell, Activity, Flame, Zap, HeartPulse, Trophy, Award, Bell, ChevronRight, TrendingUp, Target, Play, Calendar, Droplets, AlertCircle, BarChart3, Sparkles, ShieldAlert } from "lucide-react";
+import { Dumbbell, Activity, Flame, Zap, HeartPulse, Trophy, Award, Bell, ChevronRight, TrendingUp, Target, Play, Calendar, Droplets, AlertCircle, BarChart3, Sparkles, ShieldAlert, Check } from "lucide-react";
 import { motion } from "framer-motion";
 import { supabase } from "../lib/supabase";
 import { computeLevel, getRank, getNextRank } from "../lib/levelSystem";
@@ -58,6 +58,30 @@ function AnimatedPercent({ value, className }: { value: number; className?: stri
     return () => { cancelled = true; clearTimeout(timeout); cancelAnimationFrame(raf); };
   }, [value]);
   return <span className={className}>{display}%</span>;
+}
+
+function AnimatedNumber({ value, className, format, suffix }: { value: number; className?: string; format?: (n: number) => string; suffix?: string }) {
+  const [display, setDisplay] = useState(0);
+  const hasRun = useRef(false);
+  useEffect(() => {
+    if (hasRun.current || value === 0) { setDisplay(value); return; }
+    hasRun.current = true;
+    let cancelled = false;
+    let raf: number;
+    const duration = 800;
+    const start = performance.now();
+    function tick(now: number) {
+      if (cancelled) return;
+      const t = Math.min((now - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setDisplay(Math.round(value * eased));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    }
+    raf = requestAnimationFrame(tick);
+    return () => { cancelled = true; cancelAnimationFrame(raf); };
+  }, [value]);
+  const text = format ? format(display) : display.toLocaleString();
+  return <span className={className}>{text}{suffix}</span>;
 }
 
 export default function Dashboard() {
@@ -119,6 +143,45 @@ export default function Dashboard() {
   const [habitStats, setHabitStats] = useState<{ completed: number; total: number; habits: { id: string; name: string; icon: string; done: boolean }[] } | null>(null);
   const [pendingHabits, setPendingHabits] = useState<{ id: string; name: string; icon: string }[]>([]);
   const [fatigueAlerts, setFatigueAlerts] = useState<FatigueAlert[]>([]);
+  const [weightTrend, setWeightTrend] = useState<{ delta: number; direction: "up" | "down" } | null>(null);
+  const [habitMilestone, setHabitMilestone] = useState<{ name: string; streak: number } | null>(null);
+  const [milestoneToast, setMilestoneToast] = useState<string | null>(null);
+  const [dismissedNudges, setDismissedNudges] = useState<Set<string>>(new Set());
+  const [isOnline, setIsOnline] = useState(true);
+  const [streakDots, setStreakDots] = useState<boolean[]>([]);
+  const [thisWeekStats, setThisWeekStats] = useState<{ workouts: number; volume: number; prs: number } | null>(null);
+  const [muscleGroups, setMuscleGroups] = useState<string[]>([]);
+  const [lastVisit, setLastVisit] = useState<number | null>(null);
+  const [perfectDay, setPerfectDay] = useState(false);
+  const [habitCompleted, setHabitCompleted] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const pullStartY = useRef<number | null>(null);
+
+  useEffect(() => {
+    setIsOnline(navigator.onLine);
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => { window.removeEventListener("online", goOnline); window.removeEventListener("offline", goOffline); };
+  }, []);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("hub_dismissed_nudges");
+      if (stored) {
+        const parsed = JSON.parse(stored) as { keys: string[]; date: string };
+        if (parsed.date === toDateString(new Date())) {
+          setDismissedNudges(new Set(parsed.keys));
+        }
+      }
+    } catch {}
+    try {
+      const lv = localStorage.getItem("hub_last_visit");
+      if (lv) setLastVisit(Number(lv));
+      localStorage.setItem("hub_last_visit", String(Date.now()));
+    } catch {}
+  }, []);
 
   useEffect(() => {
     const updateClock = () => setTime(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
@@ -126,6 +189,16 @@ export default function Dashboard() {
     const id = setInterval(updateClock, 1000);
     setToday(new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" }));
     return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem("hub_scroll_y");
+      if (saved) window.scrollTo(0, Number(saved));
+    } catch {}
+    const save = () => { try { sessionStorage.setItem("hub_scroll_y", String(window.scrollY)); } catch {} };
+    window.addEventListener("scroll", save, { passive: true });
+    return () => window.removeEventListener("scroll", save);
   }, []);
 
   useEffect(() => {
@@ -195,11 +268,13 @@ export default function Dashboard() {
       if (gymPlan && gymPlan.template_id) {
         const { data: te } = await supabase
           .from("workout_template_exercises")
-          .select("target_sets")
+          .select("target_sets, exercises(body_segment)")
           .eq("template_id", gymPlan.template_id);
         if (cancelled) return;
         const count = te?.length ?? 0;
         const sets = (te ?? []).reduce((s, e: any) => s + (e.target_sets || 0), 0);
+        const groups = [...new Set((te ?? []).map((e: any) => e.exercises?.body_segment).filter(Boolean))] as string[];
+        setMuscleGroups(groups);
         setTodayPlan({ title: (gymPlan as any).workout_templates?.name || "Untitled Workout", is_rest: false, count, sets });
       } else {
         const maPlan = plans.find((p: any) => p.session_type === "ma" && !p.is_rest);
@@ -595,19 +670,25 @@ export default function Dashboard() {
         }
       }
 
-      // ── Weekly recap (show on Monday) ──
-      if (dayOfWeek === 1) {
-        const lastMonday = new Date(now);
-        lastMonday.setDate(lastMonday.getDate() - 7);
-        const lastMondayStr = toDateString(lastMonday);
-        const lastSunday = new Date(now);
-        lastSunday.setDate(lastSunday.getDate() - 1);
-        const lastSundayStr = toDateString(lastSunday);
+      // ── Weekly recap (Monday = last week, other days = this week so far) ──
+      {
+        const isMonday = dayOfWeek === 1;
+        const rangeStart = new Date(now);
+        const rangeEnd = new Date(now);
+        if (isMonday) {
+          rangeStart.setDate(rangeStart.getDate() - 7);
+          rangeEnd.setDate(rangeEnd.getDate() - 1);
+        } else {
+          const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+          rangeStart.setDate(rangeStart.getDate() - daysSinceMonday);
+        }
+        const rangeStartStr = toDateString(rangeStart);
+        const rangeEndStr = toDateString(rangeEnd);
 
         const [{ count: wkWorkouts }, { data: wkSessions }, { data: wkPRs }] = await Promise.all([
-          supabase.from("workout_sessions").select("id", { count: "exact", head: true }).eq("user_id", user.id).eq("status", "completed").eq("sex", userSex).gte("date", lastMondayStr).lte("date", lastSundayStr),
-          supabase.from("workout_sessions").select("id").eq("user_id", user.id).eq("status", "completed").eq("sex", userSex).gte("date", lastMondayStr).lte("date", lastSundayStr),
-          supabase.from("notifications").select("id", { count: "exact", head: true }).eq("user_id", user.id).eq("type", "new_pr").eq("sex", userSex).gte("created_at", lastMondayStr + "T00:00:00").lte("created_at", lastSundayStr + "T23:59:59"),
+          supabase.from("workout_sessions").select("id", { count: "exact", head: true }).eq("user_id", user.id).eq("status", "completed").eq("sex", userSex).gte("date", rangeStartStr).lte("date", rangeEndStr),
+          supabase.from("workout_sessions").select("id").eq("user_id", user.id).eq("status", "completed").eq("sex", userSex).gte("date", rangeStartStr).lte("date", rangeEndStr),
+          supabase.from("notifications").select("id", { count: "exact", head: true }).eq("user_id", user.id).eq("type", "new_pr").eq("sex", userSex).gte("created_at", rangeStartStr + "T00:00:00").lte("created_at", rangeEndStr + "T23:59:59"),
         ]);
         if (cancelled) return;
         let wkVol = 0;
@@ -617,7 +698,34 @@ export default function Dashboard() {
           wkVol = (logs ?? []).reduce((s, l: any) => s + ((Number(l.weight) || 0) * (Number(l.reps) || 0)), 0);
         }
         if (cancelled) return;
-        setWeeklyRecap({ workouts: wkWorkouts ?? 0, volume: Math.round(wkVol), prs: (wkPRs as any)?.length ?? (wkPRs as any) ?? 0, streak: stats.streak });
+        if (isMonday) {
+          setWeeklyRecap({ workouts: wkWorkouts ?? 0, volume: Math.round(wkVol), prs: (wkPRs as any)?.length ?? (wkPRs as any) ?? 0, streak: stats.streak });
+        } else {
+          setThisWeekStats({ workouts: wkWorkouts ?? 0, volume: Math.round(wkVol), prs: (wkPRs as any)?.length ?? (wkPRs as any) ?? 0 });
+        }
+      }
+
+      // ── Week days bar (Mon–Sun for current week) ──
+      {
+        const now = new Date();
+        const dayOfWeek = now.getDay();
+        const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+        const monday = new Date(now);
+        monday.setDate(now.getDate() + mondayOffset);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        const { data: weekDates } = await supabase
+          .from("workout_sessions").select("date").eq("user_id", user.id).eq("status", "completed").eq("sex", userSex)
+          .gte("date", toDateString(monday)).lte("date", toDateString(sunday));
+        if (cancelled) return;
+        const completedSet = new Set((weekDates ?? []).map((r: any) => r.date));
+        const dots: boolean[] = [];
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(monday);
+          d.setDate(monday.getDate() + i);
+          dots.push(completedSet.has(toDateString(d)));
+        }
+        setStreakDots(dots);
       }
 
       // ── PR celebration (last 24 hours) ──
@@ -666,12 +774,12 @@ export default function Dashboard() {
       if (stats.streak >= 7) insights.push(`${stats.streak}-day streak — keep the momentum going`);
       else if (stats.streak >= 3) insights.push(`${stats.streak}-day streak — building consistency`);
       if (stats.totalWorkouts > 0 && stats.totalWorkouts % 50 === 0) insights.push(`${stats.totalWorkouts} workouts completed — milestone!`);
-      if (stats.prCount > 0) insights.push(`${stats.prCount} personal records set so far`);
       if (stats.recoveryPct !== null && stats.recoveryPct >= 95) insights.push("Fully recovered — optimal training window");
       else if (stats.recoveryPct !== null && stats.recoveryPct < 40) insights.push("Recovery low — consider a lighter session");
       if (stats.weeklyVolume > 0) insights.push(`${Math.round(kgToUnit(stats.weeklyVolume, weightUnit)).toLocaleString()} ${weightUnit} volume this week`);
       if (insights.length > 0) {
-        setInsight(insights[Math.floor(Math.random() * insights.length)]);
+        const hourIdx = new Date().getHours();
+        setInsight(insights[hourIdx % insights.length]);
       }
 
       // Hydration card
@@ -701,7 +809,7 @@ export default function Dashboard() {
         const now = new Date();
         const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
         const [{ data: habitsData }, { data: compData }] = await Promise.all([
-          supabase.from("habits").select("id, name, icon, auto_source").eq("user_id", user.id).eq("archived", false),
+          supabase.from("habits").select("id, name, icon, auto_source, current_streak").eq("user_id", user.id).eq("archived", false),
           supabase.from("habit_completions").select("habit_id").eq("user_id", user.id).eq("completed_date", todayDate),
         ]);
         if (!cancelled && habitsData && habitsData.length > 0) {
@@ -710,7 +818,55 @@ export default function Dashboard() {
           const allHabits = habitsData.map((h: any) => ({ id: h.id, name: h.name, icon: h.icon, done: completedIds.has(h.id) }));
           setHabitStats({ completed: allHabits.filter((h) => h.done).length, total: habitsData.length, habits: allHabits });
           setPendingHabits(pending.slice(0, 3));
+
+          const milestones = [100, 60, 30, 14, 7];
+          for (const h of habitsData as any[]) {
+            const s = h.current_streak ?? 0;
+            const m = milestones.find(m => s === m);
+            if (m) { setHabitMilestone({ name: h.name, streak: s }); break; }
+          }
         }
+      }
+
+      // Body weight trend (±2kg in 7 days)
+      if (isEnabled("progress")) {
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        const { data: trendWeights } = await supabase
+          .from("body_weight_logs")
+          .select("weight, logged_at")
+          .eq("user_id", user.id)
+          .eq("sex", userSex)
+          .gte("logged_at", weekAgo.toISOString())
+          .order("logged_at", { ascending: true })
+          .limit(10);
+        if (!cancelled && trendWeights && trendWeights.length >= 2) {
+          const oldest = trendWeights[0].weight;
+          const newest = trendWeights[trendWeights.length - 1].weight;
+          const delta = Number((newest - oldest).toFixed(1));
+          if (Math.abs(delta) >= 2) {
+            setWeightTrend({ delta: Math.abs(delta), direction: delta > 0 ? "up" : "down" });
+          }
+        }
+      }
+
+      // Milestone toast (streak milestones, workout milestones, level milestones)
+      if (!cancelled) {
+        const toastKey = `hub_milestone_${dateStr}`;
+        try {
+          const shown = localStorage.getItem(toastKey);
+          if (!shown) {
+            let toast: string | null = null;
+            if (stats.streak > 0 && [7, 14, 30, 60, 100].includes(stats.streak)) toast = `${stats.streak}-day streak! Keep it going.`;
+            else if (stats.totalWorkouts > 0 && stats.totalWorkouts % 100 === 0) toast = `${stats.totalWorkouts} workouts completed!`;
+            else if (level > 0 && level % 10 === 0) toast = `Level ${level} reached!`;
+            if (toast) {
+              setMilestoneToast(toast);
+              localStorage.setItem(toastKey, "1");
+              setTimeout(() => setMilestoneToast(null), 4000);
+            }
+          }
+        } catch {}
       }
     }
     if (statsLoaded) loadDashboardCards();
@@ -729,6 +885,8 @@ export default function Dashboard() {
     const now = new Date();
     const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     await supabase.from("habit_completions").insert({ habit_id: habitId, user_id: user.id, completed_date: todayDate });
+    setHabitCompleted(habitId);
+    setTimeout(() => setHabitCompleted(null), 1200);
     setPendingHabits((prev) => prev.filter((h) => h.id !== habitId));
     setHabitStats((prev) => prev ? {
       ...prev,
@@ -779,19 +937,38 @@ export default function Dashboard() {
   const xpProgress = levelInfo.isMaxLevel ? 100 : Math.round(levelInfo.progress * 100);
 
   const hour = new Date().getHours();
-  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
-  const nudge = todayPlan?.completed
-    ? "Nice work today"
-    : todayPlan && !todayPlan.is_rest && todayPlan.count > 0
-      ? "Session planned for today"
-      : todayPlan?.is_rest
-        ? "Rest day — recover well"
-        : "No plan set for today";
+  const greeting = (() => {
+    const base = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+    if (lastVisit) {
+      const hoursSince = (Date.now() - lastVisit) / 3600000;
+      if (hoursSince > 48) return "Welcome back";
+      if (hoursSince > 24) return `${base} again`;
+    }
+    return base;
+  })();
+  const nudge = (() => {
+    if (perfectDay) return "Perfect day. Every box checked.";
+    if (recentPR) return "Still riding that PR high?";
+    if (todayPlan?.completed) {
+      if (stats.streak >= 14) return `${stats.streak} days strong. Relentless.`;
+      if (stats.streak >= 7) return `${stats.streak}-day streak. Keep building.`;
+      return "Session done. Recovery mode.";
+    }
+    if (todayPlan && !todayPlan.is_rest) {
+      if (stats.recoveryPct !== null && stats.recoveryPct >= 90) return "Fully charged. Time to train.";
+      if (stats.recoveryPct !== null && stats.recoveryPct < 40) return "Recovery low — listen to your body.";
+      return `${todayPlan.title} is waiting for you.`;
+    }
+    if (todayPlan?.is_rest) return "Rest is earned. Recover well.";
+    if (hour < 6) return "Early riser. Respect.";
+    if (hour >= 22) return "Rest up for tomorrow.";
+    return "No plan today — freestyle or rest.";
+  })();
 
   // Smart card ordering — lower order = higher on page
   const cardOrder = useMemo(() => {
     let prOrder = 10, missedOrder = 11, cycleOrder = 12, recapOrder = 13, insightOrder = 14;
-    let fatigueOrder = 15, volumeOrder = 16;
+    let fatigueOrder = 15, volumeOrder = 16, weightTrendOrder = 17, habitMilestoneOrder = 18;
     let workoutOrder = 20, levelOrder = 30, statsOrder = 40, attrOrder = 50;
     let recoveryBodyOrder = 60, energyOrder = 70, hydrationOrder = 75, habitsOrder = 76;
 
@@ -806,7 +983,7 @@ export default function Dashboard() {
     // Cycle phase is useful context before workout
     if (cyclePhase) cycleOrder = 5;
     // If haven't worked out today and plan exists, workout card is top priority
-    if (todayPlan && !todayPlan.completed && !todayPlan.is_rest && todayPlan.count > 0) {
+    if (todayPlan && !todayPlan.completed && !todayPlan.is_rest) {
       workoutOrder = 6;
     }
     // If past noon and nutrition enabled but no food logged, push energy up
@@ -817,391 +994,393 @@ export default function Dashboard() {
     if (fatigueAlerts.length > 0) {
       fatigueOrder = fatigueAlerts.some(a => a.severity === "critical") ? 1.5 : 4;
     }
-    return { prOrder, missedOrder, cycleOrder, recapOrder, insightOrder, fatigueOrder, volumeOrder, workoutOrder, levelOrder, statsOrder, attrOrder, recoveryBodyOrder, energyOrder, hydrationOrder, habitsOrder };
+    return { prOrder, missedOrder, cycleOrder, recapOrder, insightOrder, fatigueOrder, volumeOrder, weightTrendOrder, habitMilestoneOrder, workoutOrder, levelOrder, statsOrder, attrOrder, recoveryBodyOrder, energyOrder, hydrationOrder, habitsOrder };
   }, [recentPR, missedWorkout, stats.recoveryPct, todayPlan, cyclePhase, hour, isEnabled, calorieSummary, todayIntake, fatigueAlerts]);
 
+  const ambientColor = stats.recoveryPct !== null
+    ? stats.recoveryPct >= 80 ? "52 211 153" : stats.recoveryPct >= 50 ? "251 146 60" : "239 68 68"
+    : "var(--accent-rgb)";
+
+  const timeTint = hour >= 5 && hour < 12 ? "140 160 200" : hour >= 12 && hour < 17 ? "180 170 150" : hour >= 17 && hour < 21 ? "200 160 120" : "100 100 160";
+
+  function dismissNudge(key: string) {
+    setDismissedNudges(prev => {
+      const next = new Set(prev);
+      next.add(key);
+      try { localStorage.setItem("hub_dismissed_nudges", JSON.stringify({ keys: [...next], date: toDateString(new Date()) })); } catch {}
+      return next;
+    });
+  }
+
+  const nudges = useMemo(() => {
+    const list: { key: string; text: string; icon: string; href: string; module: string }[] = [];
+    if (hour >= 14 && isEnabled("nutrition") && calorieSummary && !todayIntake) {
+      list.push({ key: "lunch", text: "Don't forget lunch — tap to log", icon: "🍽", href: "/nutrition", module: "nutrition" });
+    }
+    if (hour >= 18 && isEnabled("habits") && habitStats && habitStats.completed < habitStats.total) {
+      const left = habitStats.total - habitStats.completed;
+      list.push({ key: "habits_evening", text: `${left} habit${left !== 1 ? "s" : ""} left tonight`, icon: "✨", href: "/habits", module: "habits" });
+    }
+    if (hour < 12 && isEnabled("wellness") && (hydrationMl === null || hydrationMl === 0)) {
+      list.push({ key: "water_morning", text: "Start your hydration — 0L so far", icon: "💧", href: "/wellness", module: "wellness" });
+    }
+    return list.filter(n => !dismissedNudges.has(n.key));
+  }, [hour, isEnabled, calorieSummary, todayIntake, habitStats, hydrationMl, dismissedNudges]);
+
+  const dailyScore = useMemo(() => {
+    let weightedDone = 0, weightedTotal = 0;
+    if (isEnabled("gym") && todayPlan && !todayPlan.is_rest && (todayPlan.count > 0 || todayPlan.completed)) {
+      weightedTotal += 3;
+      if (todayPlan.completed) weightedDone += 3;
+    }
+    if (isEnabled("nutrition") && calorieSummary) {
+      weightedTotal += 2;
+      const eaten = todayIntake?.kcal ?? 0;
+      if (eaten >= calorieSummary.calorieTarget * 0.8) weightedDone += 2;
+    }
+    if (isEnabled("wellness")) {
+      weightedTotal += 1;
+      if (hydrationMl !== null && hydrationMl >= waterGoalMl) weightedDone += 1;
+    }
+    if (isEnabled("habits") && habitStats && habitStats.total > 0) {
+      weightedTotal += 2;
+      if (habitStats.completed === habitStats.total) weightedDone += 2;
+    }
+    if (weightedTotal === 0) return null;
+    return Math.round((weightedDone / weightedTotal) * 100);
+  }, [isEnabled, todayPlan, calorieSummary, todayIntake, hydrationMl, waterGoalMl, habitStats]);
+
+  const heroTimePeriod = hour >= 5 && hour < 12 ? "morning" : hour >= 17 && hour < 21 ? "evening" : hour >= 21 || hour < 5 ? "night" : "";
+
+  useEffect(() => {
+    if (dailyScore === 100 && !perfectDay) setPerfectDay(true);
+  }, [dailyScore, perfectDay]);
+
+  const hasAlerts = !!(recentPR || (fatigueAlerts.length > 0) || missedWorkout || (isEnabled("cycle") && cyclePhase) || (weightTrend && isEnabled("progress")) || (habitMilestone && isEnabled("habits")) || weeklyRecap);
+
   return (
-    <main className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] pb-24 md:pb-10 relative">
+    <main className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] pb-24 md:pb-10 relative"
+      onTouchStart={(e) => { if (window.scrollY === 0) pullStartY.current = e.touches[0].clientY; }}
+      onTouchEnd={() => { pullStartY.current = null; }}
+      onTouchMove={(e) => {
+        if (pullStartY.current !== null && window.scrollY === 0) {
+          const dy = e.touches[0].clientY - pullStartY.current;
+          if (dy > 80 && !refreshing) {
+            pullStartY.current = null;
+            setRefreshing(true);
+            triggerHaptic("medium");
+            window.location.reload();
+          }
+        }
+      }}
+    >
+      <div className="fixed inset-0 pointer-events-none z-0" style={{ background: `radial-gradient(ellipse at 50% -10%, rgb(${perfectDay ? "250 204 21" : timeTint} / ${perfectDay ? "0.08" : "0.07"}) 0%, transparent 55%)` }} />
+
+      {milestoneToast && (
+        <motion.div
+          initial={{ y: -60, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -60, opacity: 0 }}
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-50 rounded-xl px-4 py-2.5 flex items-center gap-2 shadow-lg"
+          style={{ background: "rgb(var(--fg-rgb) / 0.08)", backdropFilter: "blur(12px)", border: "1px solid rgb(var(--fg-rgb) / 0.06)" }}
+        >
+          <Award size={16} className="text-[rgb(var(--accent-rgb))] shrink-0" />
+          <span className="text-xs font-semibold text-[var(--fg-80)]">{milestoneToast}</span>
+        </motion.div>
+      )}
+
       <motion.div
-        className="relative z-10 max-w-xl mx-auto px-4 pt-6 flex flex-col gap-4"
+        className="relative z-10 max-w-xl mx-auto px-4 pt-8 flex flex-col gap-5"
         variants={staggerContainer}
         initial="hidden"
         animate="visible"
       >
 
-        {/* ─── Header ─── */}
-        <motion.div variants={staggerItem} className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold font-display text-[rgb(var(--accent-light-rgb))]">
-              {profile?.username ? `${greeting}, ${profile.username}` : greeting}
-            </h1>
-            <p className="text-[11px] font-mono text-[var(--fg-30)] mt-0.5">{today ?? "..."} {time ? `· ${time}` : ""} · {nudge}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => router.push("/notifications")}
-              className="relative w-9 h-9 rounded-xl bg-[var(--fg-04)] border border-[var(--fg-06)] flex items-center justify-center text-[var(--fg-40)] hover:text-[var(--fg-70)] transition"
-            >
-              <Bell size={16} />
-              {notifLoaded && notifications.length > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[rgb(var(--accent-rgb))] text-black text-[8px] font-bold flex items-center justify-center">{notifications.length}</span>
+        {/* ─── Hero: Greeting + Avatar + Level/Rank/XP/Goal ─── */}
+        <motion.div variants={staggerItem}>
+          <div className="flex items-center justify-between">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-xl font-bold font-display text-[rgb(var(--accent-light-rgb))]">
+                {profile?.username ? `${greeting}, ${profile.username}` : greeting}
+              </h1>
+              <p className="text-[10px] font-mono text-[var(--fg-25)] mt-0.5">{today ?? "..."} {time ? `· ${time}` : ""}</p>
+              <p className="text-[11px] text-[var(--fg-40)] mt-0.5">{nudge}</p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {!isOnline && (
+                <span className="px-1.5 py-0.5 rounded text-[7px] font-mono font-bold tracking-wider text-orange-400/80 bg-orange-400/10 border border-orange-400/15">OFFLINE</span>
               )}
-            </button>
-            <button
-              onClick={() => router.push("/profile")}
-              className="w-9 h-9 rounded-xl bg-[rgb(var(--accent-rgb)/0.1)] border border-[rgb(var(--accent-rgb)/0.2)] flex items-center justify-center text-[rgb(var(--accent-rgb))] font-bold text-sm overflow-hidden shrink-0"
-            >
-              {profile?.avatar_url ? (
-                <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
-              ) : (
-                (profile?.username?.[0] ?? "?").toUpperCase()
-              )}
-            </button>
+              <button
+                onClick={() => { triggerHaptic("light"); router.push("/notifications"); }}
+                className="relative w-9 h-9 rounded-xl bg-[var(--fg-04)] border border-[var(--fg-06)] flex items-center justify-center text-[var(--fg-40)] hover:text-[var(--fg-70)] transition active:scale-95"
+              >
+                <Bell size={16} />
+                {notifLoaded && notifications.length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[rgb(var(--accent-rgb))] text-black text-[8px] font-bold flex items-center justify-center">{notifications.length}</span>
+                )}
+              </button>
+              <button
+                onClick={() => { triggerHaptic("light"); router.push("/profile"); }}
+                className="relative w-10 h-10 rounded-full overflow-hidden shrink-0 active:scale-95 transition"
+              >
+                <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 36 36">
+                  <circle cx="18" cy="18" r="16.5" fill="none" stroke="rgb(var(--accent-rgb) / 0.15)" strokeWidth="2" />
+                  <circle cx="18" cy="18" r="16.5" fill="none" stroke="rgb(var(--accent-rgb))" strokeWidth="2" strokeDasharray={`${xpProgress * 1.036} 103.6`} strokeLinecap="round" />
+                </svg>
+                <div className="absolute inset-[3px] rounded-full bg-[rgb(var(--accent-rgb)/0.1)] border border-[rgb(var(--accent-rgb)/0.2)] flex items-center justify-center text-[rgb(var(--accent-rgb))] font-bold text-xs overflow-hidden">
+                  {profile?.avatar_url ? (
+                    <img src={profile.avatar_url} alt="" className="w-full h-full object-cover rounded-full" />
+                  ) : (
+                    (profile?.username?.[0] ?? "?").toUpperCase()
+                  )}
+                </div>
+              </button>
+            </div>
           </div>
+
+          {/* Level / Rank / XP bar / Goal — merged into hero */}
+          {statsLoaded && (
+            <div className="mt-3 rounded-xl bg-[var(--fg-02)] border border-[var(--fg-06)] px-3.5 py-2.5 cursor-pointer active:scale-[0.99] transition" onClick={() => { triggerHaptic("light"); router.push("/character"); }}>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-7 h-7 rounded-lg bg-[rgb(var(--accent-rgb)/0.1)] border border-[rgb(var(--accent-rgb)/0.2)] flex items-center justify-center text-sm font-bold text-[rgb(var(--accent-rgb))]">{level}</span>
+                  <div>
+                    <p className="text-xs font-semibold text-[var(--fg-70)]">Level {level}</p>
+                    <p className="text-[9px] font-mono text-[var(--fg-25)]">
+                      <span className={rank.color}>{rank.name}</span>
+                      {nextRank && <span className="text-[var(--fg-15)]"> · {nextRank.name} at Lv.{nextRank.minLevel}</span>}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {stats.goal && (
+                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--fg-04)] border border-[var(--fg-06)] text-[9px] font-mono text-[var(--fg-35)]">
+                      <Target size={9} className="text-[rgb(var(--accent-rgb)/0.5)]" />
+                      {stats.goal}
+                    </span>
+                  )}
+                  <span className={`flex items-center gap-1 px-2 py-0.5 rounded-md border text-[8px] font-mono tracking-wider ${rank.color}`}
+                    style={{ borderColor: `${rank.glow?.replace("0.6", "0.3") ?? "var(--fg-10)"}`, backgroundColor: `${rank.glow?.replace("0.6", "0.06") ?? "var(--fg-03)"}` }}
+                  >
+                    <Award size={8} />
+                    {rank.name}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Zap size={10} className="text-[rgb(var(--accent-rgb))] shrink-0" />
+                <div className="flex-1 h-1.5 bg-[var(--fg-06)] rounded-full overflow-hidden relative">
+                  <motion.div className="h-full rounded-full" initial={{ width: 0 }} animate={{ width: `${xpProgress}%` }} transition={{ duration: 0.8, ease: "easeOut" }} style={{ background: `linear-gradient(90deg, rgb(var(--accent-rgb) / 0.7), rgb(var(--accent-rgb)))` }} />
+                  {[25, 50, 75].map((m) => (
+                    <div key={m} className="absolute top-0 bottom-0 w-px bg-[var(--fg-10)]" style={{ left: `${m}%` }} />
+                  ))}
+                </div>
+                <span className="text-[8px] font-mono text-[var(--fg-20)] shrink-0">
+                  {levelInfo.isMaxLevel ? "MAX" : `${levelInfo.xpIntoCurrentLevel}/${levelInfo.xpNeededForNext}`}
+                </span>
+              </div>
+            </div>
+          )}
         </motion.div>
 
         {/* ─── At-a-Glance Strip (auto-scroll marquee) ─── */}
         {statsLoaded && (() => {
           const pills = [
-            isEnabled("xp") && { label: `Lv.${level}`, sub: rank.name, color: "rgb(var(--accent-rgb))" },
-            { label: `${stats.streak}`, sub: "streak", color: "rgb(251,146,60)" },
-            isEnabled("recovery") && stats.recoveryPct !== null && { label: `${stats.recoveryPct}%`, sub: "recovery", color: stats.recoveryPct >= 80 ? "rgb(52,211,153)" : stats.recoveryPct >= 50 ? "rgb(251,146,60)" : "rgb(239,68,68)" },
-            isEnabled("nutrition") && calorieSummary && { label: `${Math.max(0, calorieSummary.calorieTarget - (todayIntake?.kcal ?? 0))}`, sub: "kcal left", color: "rgb(245,158,11)" },
-            isEnabled("progress") && stats.bodyWeight !== null && { label: `${formatWeight(stats.bodyWeight, weightUnit, 1)}`, sub: weightUnit, color: "rgb(139,92,246)" },
-          ].filter(Boolean) as { label: string; sub: string; color: string }[];
-          const renderPill = (pill: { label: string; sub: string; color: string }, i: number) => (
-            <div key={`${pill.sub}-${i}`} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[var(--fg-08)] bg-[var(--fg-03)]">
+            dailyScore !== null && { label: `${dailyScore}%`, sub: "today", color: dailyScore === 100 ? "rgb(250,204,21)" : "rgb(var(--accent-rgb))", href: "" },
+            isEnabled("xp") && { label: `Lv.${level}`, sub: rank.name, color: "rgb(var(--accent-rgb))", href: "/character" },
+            { label: `${stats.streak}`, sub: "streak", color: "rgb(251,146,60)", href: "/track" },
+            isEnabled("recovery") && stats.recoveryPct !== null && { label: `${stats.recoveryPct}%`, sub: "recovery", color: stats.recoveryPct >= 80 ? "rgb(52,211,153)" : stats.recoveryPct >= 50 ? "rgb(251,146,60)" : "rgb(239,68,68)", href: "/recovery" },
+            isEnabled("nutrition") && calorieSummary && { label: `${Math.max(0, calorieSummary.calorieTarget - (todayIntake?.kcal ?? 0))}`, sub: "kcal left", color: "rgb(245,158,11)", href: "/nutrition" },
+            isEnabled("progress") && stats.bodyWeight !== null && { label: `${formatWeight(stats.bodyWeight, weightUnit, 1)}`, sub: weightUnit, color: "rgb(139,92,246)", href: "/track" },
+          ].filter(Boolean) as { label: string; sub: string; color: string; href: string }[];
+          const renderPill = (pill: { label: string; sub: string; color: string; href: string }, i: number) => (
+            <button key={`${pill.sub}-${i}`} onClick={pill.href ? () => { triggerHaptic("light"); router.push(pill.href); } : undefined} className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[var(--fg-08)] bg-[var(--fg-03)] active:scale-95 transition">
               <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: pill.color }} />
               <span className="text-xs font-bold font-mono text-[var(--fg-80)]">{pill.label}</span>
               <span className="text-[9px] font-mono text-[var(--fg-25)]">{pill.sub}</span>
-            </div>
+            </button>
           );
           return (
-            <motion.div variants={staggerItem} ref={pillRef} onTouchStart={handlePillTouch} className="pill-marquee-wrap overflow-x-auto scrollbar-hide -mx-1 px-1 pb-1">
+            <motion.div variants={staggerItem} ref={pillRef} onTouchStart={handlePillTouch} className="pill-marquee-wrap overflow-x-auto scrollbar-hide -mx-1 px-1 pb-1 relative">
+              <div className="absolute inset-y-0 left-0 w-4 z-10 pointer-events-none" style={{ background: "linear-gradient(to right, var(--bg-primary), transparent)" }} />
               <div className="pill-marquee-track flex gap-2 w-max">
                 {pills.map((p, i) => renderPill(p, i))}
                 {pills.map((p, i) => renderPill(p, i + pills.length))}
               </div>
+              <div className="absolute inset-y-0 right-0 w-4 z-10 pointer-events-none" style={{ background: "linear-gradient(to left, var(--bg-primary), transparent)" }} />
             </motion.div>
           );
         })()}
 
-        {/* ─── PR Celebration ─── */}
-        {recentPR && (
-          <motion.div variants={staggerItem} className="rounded-2xl border border-yellow-400/20 bg-yellow-400/[0.04] p-4" style={{ order: cardOrder.prOrder, boxShadow: "0 0 25px -5px rgba(250,204,21,0.15)" }}>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-yellow-400/15 border border-yellow-400/25 flex items-center justify-center">
-                <Trophy size={18} className="text-yellow-400" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[9px] font-mono tracking-widest text-yellow-400/60 mb-0.5">NEW PERSONAL RECORD</p>
-                <p className="text-sm font-semibold text-yellow-300/90 truncate">{recentPR.exercise}</p>
-              </div>
-              <button onClick={() => router.push("/track")} className="shrink-0 px-3 py-1.5 rounded-lg bg-yellow-400/10 border border-yellow-400/20 text-[10px] font-mono text-yellow-400/80 hover:text-yellow-300 transition">
-                View
-              </button>
-            </div>
-          </motion.div>
-        )}
+        {/* ─── Alerts ─── */}
+        {hasAlerts && (() => {
+          const alertItems: { key: string; icon: React.ReactNode; color: string; text: React.ReactNode; sub?: string; action?: React.ReactNode; order: number }[] = [];
 
-        {/* ─── Missed Workout ─── */}
-        {missedWorkout && (
-          <motion.div variants={staggerItem} className="rounded-2xl border border-orange-400/15 bg-orange-400/[0.03] p-4" style={{ order: cardOrder.missedOrder }}>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-orange-400/10 border border-orange-400/20 flex items-center justify-center">
-                <AlertCircle size={18} className="text-orange-400/70" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-[var(--fg-70)]">Yesterday was <span className="text-orange-300">{missedWorkout}</span></p>
-                <p className="text-[10px] font-mono text-[var(--fg-25)] mt-0.5">Missed session — reschedule or skip?</p>
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button onClick={() => setMissedWorkout(null)} className="px-2.5 py-1.5 rounded-lg text-[10px] font-mono text-[var(--fg-25)] hover:text-[var(--fg-50)] transition">
-                  Skip
-                </button>
-                <button onClick={() => router.push("/schedule")} className="px-3 py-1.5 rounded-lg bg-orange-400/15 border border-orange-400/20 text-[10px] font-mono text-orange-300 hover:bg-orange-400/25 transition">
-                  Schedule
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        )}
+          if (fatigueAlerts.length > 0) {
+            const isCrit = fatigueAlerts.some(a => a.severity === "critical");
+            alertItems.push({
+              key: "fatigue",
+              icon: <ShieldAlert size={14} />,
+              color: isCrit ? "248,113,113" : "251,191,36",
+              text: <>{fatigueAlerts[0].message}</>,
+              sub: fatigueAlerts[0].detail,
+              order: cardOrder.fatigueOrder,
+            });
+          }
 
-        {/* ─── Fatigue Alert ─── */}
-        {fatigueAlerts.length > 0 && (
-          <motion.div variants={staggerItem} className={`rounded-2xl border p-4 ${
-            fatigueAlerts.some(a => a.severity === "critical")
-              ? "border-red-400/20 bg-red-400/[0.04]"
-              : "border-amber-400/20 bg-amber-400/[0.04]"
-          }`} style={{ order: cardOrder.fatigueOrder, boxShadow: fatigueAlerts.some(a => a.severity === "critical") ? "0 0 25px -5px rgba(248,113,113,0.15)" : undefined }}>
-            <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                fatigueAlerts.some(a => a.severity === "critical")
-                  ? "bg-red-400/15 border border-red-400/25"
-                  : "bg-amber-400/15 border border-amber-400/25"
-              }`}>
-                <ShieldAlert size={18} className={fatigueAlerts.some(a => a.severity === "critical") ? "text-red-400" : "text-amber-400"} />
+          if (recentPR) {
+            alertItems.push({
+              key: "pr",
+              icon: <Trophy size={14} />,
+              color: "250,204,21",
+              text: <>PR: <span className="font-semibold text-yellow-300/90">{recentPR.exercise}</span></>,
+              action: <button onClick={() => router.push("/track")} className="text-[10px] font-mono text-yellow-400/70 hover:text-yellow-300 transition">View →</button>,
+              order: cardOrder.prOrder,
+            });
+          }
+
+          if (missedWorkout) {
+            alertItems.push({
+              key: "missed",
+              icon: <AlertCircle size={14} />,
+              color: "251,146,60",
+              text: <>Missed: <span className="font-semibold text-orange-300">{missedWorkout}</span></>,
+              action: (
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setMissedWorkout(null)} className="text-[10px] font-mono text-[var(--fg-25)] hover:text-[var(--fg-50)] transition">Skip</button>
+                  <button onClick={() => router.push("/schedule")} className="text-[10px] font-mono text-orange-300/80 hover:text-orange-300 transition">Go →</button>
+                </div>
+              ),
+              order: cardOrder.missedOrder,
+            });
+          }
+
+          if (weightTrend && isEnabled("progress")) {
+            alertItems.push({
+              key: "weight",
+              icon: <TrendingUp size={14} />,
+              color: "168,85,247",
+              text: <>{weightTrend.direction === "up" ? "↑" : "↓"} {formatWeight(weightTrend.delta, weightUnit, 1)} {weightUnit} this week</>,
+              action: <button onClick={() => router.push("/track")} className="text-[10px] font-mono text-purple-400/60 hover:text-purple-300 transition">Log →</button>,
+              order: cardOrder.weightTrendOrder,
+            });
+          }
+
+          if (habitMilestone && isEnabled("habits")) {
+            alertItems.push({
+              key: "habit",
+              icon: <Flame size={14} />,
+              color: MODULE_REGISTRY.habits.colorRgb,
+              text: <><span className="font-semibold text-rose-300/90">{habitMilestone.name}</span> · {habitMilestone.streak}-day streak</>,
+              action: <button onClick={() => router.push("/habits")} className="text-[10px] font-mono text-rose-400/60 hover:text-rose-300 transition">View →</button>,
+              order: cardOrder.habitMilestoneOrder,
+            });
+          }
+
+          if (isEnabled("cycle") && cyclePhase) {
+            alertItems.push({
+              key: "cycle",
+              icon: <Droplets size={14} />,
+              color: MODULE_REGISTRY.cycle.colorRgb,
+              text: <><span className="font-semibold text-pink-300/90">{cyclePhase.phase}</span> Phase · Day {cyclePhase.day}</>,
+              sub: cyclePhase.tip,
+              action: <button onClick={() => router.push("/cycle")} className="text-[10px] font-mono text-pink-400/60 hover:text-pink-300 transition">Log →</button>,
+              order: cardOrder.cycleOrder,
+            });
+          }
+
+          alertItems.sort((a, b) => a.order - b.order);
+
+          return (
+            <motion.div variants={staggerItem} className="rounded-xl border border-[var(--fg-08)] bg-[var(--fg-02)] overflow-hidden">
+              {alertItems.map((item, i) => (
+                <div key={item.key} className={`flex items-center gap-3 px-4 py-3 ${i > 0 ? "border-t border-[var(--fg-05)]" : ""}`}>
+                  <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: `rgb(${item.color})`, boxShadow: `0 0 6px rgb(${item.color} / 0.4)` }} />
+                  <span className="shrink-0" style={{ color: `rgb(${item.color} / 0.7)` }}>{item.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] text-[var(--fg-55)] truncate">{item.text}</p>
+                    {item.sub && <p className="text-[9px] font-mono text-[var(--fg-25)] mt-0.5 truncate">{item.sub}</p>}
+                  </div>
+                  {item.action && <div className="shrink-0">{item.action}</div>}
+                </div>
+              ))}
+            </motion.div>
+          );
+        })()}
+
+        {/* ─── Weekly Overview (This Week / Last Week + Streak Dots) ─── */}
+        {(weeklyRecap || thisWeekStats) && (
+          <motion.div variants={staggerItem} className="rounded-2xl border border-[rgb(var(--accent-rgb)/0.12)] bg-[var(--fg-03)] p-4 cursor-pointer active:scale-[0.98] transition" style={{ order: cardOrder.recapOrder }} onClick={() => { triggerHaptic("light"); router.push("/track"); }}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <BarChart3 size={14} className="text-[rgb(var(--accent-rgb))]" />
+                <p className="text-[9px] font-mono tracking-widest text-[rgb(var(--accent-light-rgb)/0.4)]">{weeklyRecap ? "LAST WEEK" : "THIS WEEK"}</p>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className={`text-[9px] font-mono tracking-widest mb-0.5 ${
-                  fatigueAlerts.some(a => a.severity === "critical") ? "text-red-400/60" : "text-amber-400/60"
-                }`}>FATIGUE DETECTED</p>
-                <p className={`text-sm font-semibold ${
-                  fatigueAlerts.some(a => a.severity === "critical") ? "text-red-300/90" : "text-amber-300/90"
-                }`}>{fatigueAlerts[0].message}</p>
-                <p className="text-[10px] font-mono text-[var(--fg-30)] mt-0.5">{fatigueAlerts[0].detail}</p>
-              </div>
+              {stats.streak > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <Flame size={11} className="text-orange-400/60" />
+                  <span className="text-[10px] font-mono font-semibold text-orange-400/80">{stats.streak}d streak</span>
+                </div>
+              )}
             </div>
-            {fatigueAlerts.length > 1 && (
-              <div className="mt-2 pt-2 border-t border-[var(--fg-06)] space-y-1">
-                {fatigueAlerts.slice(1).map((a, i) => (
-                  <p key={i} className="text-[10px] font-mono text-[var(--fg-35)]">• {a.message}: {a.detail}</p>
-                ))}
+            <div className={`grid ${weeklyRecap ? "grid-cols-4" : "grid-cols-3"} gap-2 mb-3`}>
+              {(weeklyRecap
+                ? [
+                    { v: weeklyRecap.workouts, l: "WORKOUTS" },
+                    { v: Math.round(kgToUnit(weeklyRecap.volume, weightUnit)).toLocaleString(), l: `VOL (${weightUnit})` },
+                    { v: weeklyRecap.prs, l: "PRs", color: "text-yellow-400/90" },
+                    { v: weeklyRecap.streak, l: "STREAK", color: "text-orange-400/90" },
+                  ]
+                : [
+                    { v: thisWeekStats!.workouts, l: "WORKOUTS" },
+                    { v: Math.round(kgToUnit(thisWeekStats!.volume, weightUnit)).toLocaleString(), l: `VOL (${weightUnit})` },
+                    { v: thisWeekStats!.prs, l: "PRs", color: "text-yellow-400/90" },
+                  ]
+              ).map((s) => (
+                <div key={s.l} className="text-center">
+                  <p className={`text-xl font-bold font-mono ${s.color ?? "text-[var(--fg-90)]"}`}>{s.v}</p>
+                  <p className="text-[8px] font-mono text-[var(--fg-25)]">{s.l}</p>
+                </div>
+              ))}
+            </div>
+            {streakDots.length === 7 && (
+              <div className="pt-2.5 border-t border-[var(--fg-05)]">
+                <div className="flex justify-between">
+                  {["M", "T", "W", "T", "F", "S", "S"].map((label, i) => {
+                    const isToday = i === ((new Date().getDay() + 6) % 7);
+                    return (
+                      <div key={i} className="flex flex-col items-center gap-1">
+                        <div className={`w-5 h-5 rounded-md flex items-center justify-center ${streakDots[i] ? "bg-[rgb(var(--accent-rgb))]" : isToday ? "border border-[var(--fg-15)] bg-[var(--fg-04)]" : "bg-[var(--fg-04)]"}`} style={streakDots[i] ? { boxShadow: "0 0 6px rgb(var(--accent-rgb) / 0.3)" } : undefined}>
+                          {streakDots[i] && <Check size={10} className="text-black" />}
+                        </div>
+                        <span className={`text-[7px] font-mono ${isToday ? "text-[var(--fg-50)] font-bold" : "text-[var(--fg-18)]"}`}>{label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </motion.div>
         )}
 
-
-        {/* ─── Cycle Phase (female) ─── */}
-        {isEnabled("cycle") && cyclePhase && (
-          <motion.div variants={staggerItem} className="rounded-2xl border border-pink-400/15 bg-pink-400/[0.03] p-4" style={{ order: cardOrder.cycleOrder }}>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-pink-400/10 border border-pink-400/20 flex items-center justify-center">
-                <Droplets size={18} className="text-pink-400" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-semibold text-pink-300/90">{cyclePhase.phase} Phase</p>
-                  <span className="text-[9px] font-mono text-pink-400/40">Day {cyclePhase.day}</span>
-                </div>
-                <p className="text-[10px] font-mono text-[var(--fg-30)] mt-0.5">{cyclePhase.tip}</p>
-              </div>
-              <button onClick={() => router.push("/cycle")} className="shrink-0 px-3 py-1.5 rounded-lg bg-pink-400/10 border border-pink-400/20 text-[10px] font-mono text-pink-400/60 hover:text-pink-300 transition">
-                Log
-              </button>
-            </div>
-          </motion.div>
-        )}
-
-        {/* ─── Weekly Recap (Monday) ─── */}
-        {weeklyRecap && (
-          <motion.div variants={staggerItem} className="rounded-2xl border border-[rgb(var(--accent-rgb)/0.15)] bg-[var(--fg-03)] p-4" style={{ order: cardOrder.recapOrder, boxShadow: "0 0 20px -5px rgb(var(--accent-rgb) / 0.1)" }}>
-            <div className="flex items-center gap-2 mb-3">
-              <BarChart3 size={14} className="text-[rgb(var(--accent-rgb))]" />
-              <p className="text-[9px] font-mono tracking-widest text-[rgb(var(--accent-light-rgb)/0.4)]">LAST WEEK</p>
-            </div>
-            <div className="grid grid-cols-4 gap-2">
-              <div className="text-center">
-                <p className="text-xl font-bold font-mono text-[var(--fg-90)]">{weeklyRecap.workouts}</p>
-                <p className="text-[8px] font-mono text-[var(--fg-25)]">WORKOUTS</p>
-              </div>
-              <div className="text-center">
-                <p className="text-xl font-bold font-mono text-[var(--fg-90)]">{Math.round(kgToUnit(weeklyRecap.volume, weightUnit)).toLocaleString()}</p>
-                <p className="text-[8px] font-mono text-[var(--fg-25)]">VOL ({weightUnit})</p>
-              </div>
-              <div className="text-center">
-                <p className="text-xl font-bold font-mono text-yellow-400/90">{weeklyRecap.prs}</p>
-                <p className="text-[8px] font-mono text-[var(--fg-25)]">PRs</p>
-              </div>
-              <div className="text-center">
-                <p className="text-xl font-bold font-mono text-orange-400/90">{weeklyRecap.streak}</p>
-                <p className="text-[8px] font-mono text-[var(--fg-25)]">STREAK</p>
-              </div>
-            </div>
-          </motion.div>
-        )}
-
         {/* ─── Contextual Insight ─── */}
         {insight && (
-          <motion.div variants={staggerItem} className="rounded-xl border border-[rgb(var(--accent-rgb)/0.1)] bg-[rgb(var(--accent-rgb)/0.03)] px-4 py-3 flex items-center gap-3" style={{ order: cardOrder.insightOrder }}>
-            <Sparkles size={14} className="text-[rgb(var(--accent-rgb))] shrink-0" />
-            <p className="text-[11px] font-mono text-[var(--fg-50)]">{insight}</p>
+          <motion.div variants={staggerItem} className="rounded-xl border border-[rgb(var(--accent-rgb)/0.15)] px-4 py-3.5 flex items-center gap-3" style={{ order: cardOrder.insightOrder, background: "linear-gradient(135deg, rgb(var(--accent-rgb) / 0.06), rgb(var(--accent-rgb) / 0.02))", boxShadow: "0 0 15px -5px rgb(var(--accent-rgb) / 0.1)" }}>
+            <Sparkles size={16} className="text-[rgb(var(--accent-rgb))] shrink-0" />
+            <p className="text-xs font-mono text-[var(--fg-60)]">{insight}</p>
           </motion.div>
         )}
-
-        {/* ─── Hydration Card ─── */}
-        {hydrationMl !== null && isEnabled("wellness") && (
-          <motion.div
-            variants={staggerItem}
-            className="rounded-xl border border-blue-400/10 bg-blue-400/[0.03] px-4 py-3 flex items-center gap-3 cursor-pointer"
-            style={{ order: cardOrder.hydrationOrder }}
-            onClick={() => router.push("/wellness")}
-          >
-            <Droplets size={16} className="text-blue-400/70 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between">
-                <p className="text-[11px] font-mono text-[var(--fg-50)]">
-                  {(hydrationMl / 1000).toFixed(1)}L / {(waterGoalMl / 1000).toFixed(0)}L
-                </p>
-                <span className="text-[9px] font-mono text-[var(--fg-25)]">{Math.min(100, Math.round((hydrationMl / waterGoalMl) * 100))}%</span>
-              </div>
-              <div className="h-1 rounded-full bg-[var(--fg-04)] overflow-hidden mt-1">
-                <div className="h-full rounded-full bg-blue-400/40" style={{ width: `${Math.min(100, (hydrationMl / waterGoalMl) * 100)}%` }} />
-              </div>
-            </div>
-            <ChevronRight size={12} className="text-[var(--fg-15)] shrink-0" />
-          </motion.div>
-        )}
-
-        {/* ─── Habits Card with Segment Ring ─── */}
-        {habitStats && isEnabled("habits") && (() => {
-          const HABIT_RING_COLORS = [
-            { from: "#ef4444", to: "#f87171" },
-            { from: "#10b981", to: "#34d399" },
-            { from: "#3b82f6", to: "#60a5fa" },
-            { from: "#f59e0b", to: "#fbbf24" },
-            { from: "#a855f7", to: "#c084fc" },
-            { from: "#ec4899", to: "#f472b6" },
-            { from: "#06b6d4", to: "#22d3ee" },
-            { from: "#f97316", to: "#fb923c" },
-          ];
-          const pct = habitStats.total > 0 ? Math.round((habitStats.completed / habitStats.total) * 100) : 0;
-          const svgSize = 100;
-          const ctr = svgSize / 2;
-          const sw = 8;
-          const r = (svgSize / 2) - (sw / 2) - 1;
-          const n = habitStats.habits.length;
-          const gapDeg = n <= 3 ? 8 : n <= 6 ? 6 : 4;
-          const segDeg = (360 - gapDeg * n) / n;
-          function hubArc(sDeg: number, eDeg: number) {
-            const s2 = (sDeg - 90) * Math.PI / 180;
-            const e2 = (eDeg - 90) * Math.PI / 180;
-            const x1 = ctr + r * Math.cos(s2), y1 = ctr + r * Math.sin(s2);
-            const x2 = ctr + r * Math.cos(e2), y2 = ctr + r * Math.sin(e2);
-            return `M ${x1} ${y1} A ${r} ${r} 0 ${(eDeg - sDeg) > 180 ? 1 : 0} 1 ${x2} ${y2}`;
-          }
-
-          return (
-            <motion.div
-              variants={staggerItem}
-              className="rounded-2xl border border-rose-400/10 overflow-hidden cursor-pointer"
-              style={{ order: cardOrder.habitsOrder, background: "linear-gradient(135deg, rgb(244 63 94 / 0.04), rgb(168 85 247 / 0.02))" }}
-              onClick={() => router.push("/habits")}
-            >
-              <div className="p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <Flame size={14} className="text-rose-400/60" />
-                    <p className="text-[9px] font-mono tracking-widest text-rose-300/40">DAILY HABITS</p>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-mono text-[var(--fg-30)]">
-                      {habitStats.completed === habitStats.total && habitStats.total > 0 ? "Perfect Day!" : `${pct}%`}
-                    </span>
-                    <ChevronRight size={12} className="text-[var(--fg-15)]" />
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4">
-                  {/* Mini segment ring */}
-                  <div className="relative shrink-0" style={{ width: svgSize, height: svgSize }}>
-                    <svg width={svgSize} height={svgSize} viewBox={`0 0 ${svgSize} ${svgSize}`}>
-                      <defs>
-                        {habitStats.habits.map((_, i) => {
-                          const c = HABIT_RING_COLORS[i % HABIT_RING_COLORS.length];
-                          return (
-                            <linearGradient key={`hsg-${i}`} id={`hsg-${i}`} x1="0%" y1="0%" x2="100%" y2="100%">
-                              <stop offset="0%" stopColor={c.from} />
-                              <stop offset="100%" stopColor={c.to} />
-                            </linearGradient>
-                          );
-                        })}
-                        <filter id="hub-glow">
-                          <feGaussianBlur stdDeviation="3" result="blur" />
-                          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-                        </filter>
-                      </defs>
-                      {habitStats.habits.map((h, i) => {
-                        const startDeg = i * (segDeg + gapDeg);
-                        const endDeg = startDeg + segDeg;
-                        const d = hubArc(startDeg, endDeg);
-                        const c = HABIT_RING_COLORS[i % HABIT_RING_COLORS.length];
-                        return (
-                          <g key={h.id}>
-                            <path d={d} fill="none" stroke={`${c.from}20`} strokeWidth={sw} strokeLinecap="round" />
-                            {h.done && (
-                              <>
-                                <motion.path d={d} fill="none" stroke={`${c.from}40`} strokeWidth={sw + 4} strokeLinecap="round"
-                                  filter="url(#hub-glow)" pathLength={1}
-                                  initial={{ pathLength: 0, opacity: 0 }}
-                                  animate={{ pathLength: 1, opacity: 0.6 }}
-                                  transition={{ duration: 0.6, delay: 0.15 + i * 0.08, ease: [0.34, 1.56, 0.64, 1] }} />
-                                <motion.path d={d} fill="none" stroke={`url(#hsg-${i})`} strokeWidth={sw} strokeLinecap="round"
-                                  pathLength={1}
-                                  initial={{ pathLength: 0 }}
-                                  animate={{ pathLength: 1 }}
-                                  transition={{ duration: 0.5, delay: 0.1 + i * 0.08, ease: [0.34, 1.56, 0.64, 1] }} />
-                              </>
-                            )}
-                          </g>
-                        );
-                      })}
-                    </svg>
-                    {/* Center percentage */}
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <motion.div
-                        initial={{ opacity: 0, scale: 0.5 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={{ duration: 0.4, delay: 0.3, ease: [0.34, 1.56, 0.64, 1] }}>
-                        <AnimatedPercent value={pct} className="text-lg font-bold font-mono text-[var(--fg-70)]" />
-                      </motion.div>
-                    </div>
-                  </div>
-
-                  {/* Habit list with colored dots */}
-                  <div className="flex-1 min-w-0 space-y-1">
-                    {habitStats.habits.slice(0, 4).map((h, i) => {
-                      const c = HABIT_RING_COLORS[i % HABIT_RING_COLORS.length];
-                      return (
-                        <div key={h.id} className="flex items-center gap-2">
-                          <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{
-                            background: h.done ? c.from : `${c.from}33`,
-                            boxShadow: h.done ? `0 0 4px ${c.from}` : "none",
-                          }} />
-                          <span className={`text-[10px] font-mono truncate ${h.done ? "text-[var(--fg-50)] line-through" : "text-[var(--fg-35)]"}`}>
-                            {h.icon} {h.name}
-                          </span>
-                          {h.done && <span className="text-[8px] text-emerald-400/50 ml-auto shrink-0">✓</span>}
-                        </div>
-                      );
-                    })}
-                    {habitStats.habits.length > 4 && (
-                      <p className="text-[9px] font-mono text-[var(--fg-15)]">+{habitStats.habits.length - 4} more</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Quick complete strip */}
-              {pendingHabits.length > 0 && (
-                <div className="border-t border-[var(--fg-04)] px-4 py-2 flex gap-1.5 flex-wrap" onClick={(e) => e.stopPropagation()}>
-                  {pendingHabits.map((h) => (
-                    <button
-                      key={h.id}
-                      onClick={() => quickCompleteHabit(h.id)}
-                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[var(--fg-06)] bg-[var(--fg-02)] hover:bg-[var(--fg-06)] text-[10px] font-mono text-[var(--fg-40)] hover:text-[var(--fg-60)] transition active:scale-95"
-                    >
-                      <span>{h.icon}</span> {h.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </motion.div>
-          );
-        })()}
 
         {/* ─── Today's Workout Card ─── */}
-        <motion.div variants={staggerItem} className="rounded-2xl border border-[rgb(var(--accent-rgb)/0.15)] bg-[var(--fg-03)] overflow-hidden" style={{ order: cardOrder.workoutOrder, boxShadow: "0 0 20px -5px rgb(var(--accent-rgb) / 0.1), inset 0 1px 0 rgb(var(--accent-rgb) / 0.05)" }}>
-          <div className="p-4">
-            <p className="text-[9px] font-mono tracking-widest text-[rgb(var(--accent-light-rgb)/0.4)] mb-2">TODAY&apos;S WORKOUT</p>
-
-            {todayLoading ? (
+        <motion.div variants={staggerItem} style={{ order: cardOrder.workoutOrder }}>
+          {todayLoading ? (
+            <div className="rounded-2xl border border-[rgb(var(--accent-rgb)/0.15)] bg-[var(--fg-03)] p-4">
               <div className="animate-pulse space-y-2 py-2">
                 <div className="h-5 w-40 rounded bg-[var(--fg-06)]" />
                 <div className="h-3 w-28 rounded bg-[var(--fg-04)]" />
               </div>
-            ) : !todayPlan ? (
+            </div>
+          ) : !todayPlan ? (
+            <div className="rounded-2xl border border-[rgb(var(--accent-rgb)/0.15)] bg-[var(--fg-03)] p-4" style={{ boxShadow: "0 0 20px -5px rgb(var(--accent-rgb) / 0.1), inset 0 1px 0 rgb(var(--accent-rgb) / 0.05)" }}>
+              <p className="text-[9px] font-mono tracking-widest text-[rgb(var(--accent-light-rgb)/0.4)] mb-2">TODAY&apos;S WORKOUT</p>
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-base font-semibold text-[var(--fg-80)]">No Workout Planned</p>
@@ -1211,7 +1390,10 @@ export default function Dashboard() {
                   Schedule
                 </button>
               </div>
-            ) : todayPlan.completed ? (
+            </div>
+          ) : todayPlan.completed ? (
+            <div className="rounded-2xl border border-emerald-400/15 bg-emerald-400/[0.03] p-4">
+              <p className="text-[9px] font-mono tracking-widest text-emerald-400/40 mb-2">TODAY&apos;S WORKOUT</p>
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
@@ -1226,7 +1408,10 @@ export default function Dashboard() {
                   Progress <ChevronRight size={12} />
                 </button>
               </div>
-            ) : todayPlan.is_rest ? (
+            </div>
+          ) : todayPlan.is_rest ? (
+            <div className="rounded-2xl border border-blue-400/15 bg-blue-400/[0.03] p-4">
+              <p className="text-[9px] font-mono tracking-widest text-blue-400/40 mb-2">TODAY&apos;S WORKOUT</p>
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
                   <HeartPulse size={18} className="text-blue-400" />
@@ -1236,150 +1421,185 @@ export default function Dashboard() {
                   <p className="text-[11px] text-[var(--fg-30)] mt-0.5">Recovery is part of the plan</p>
                 </div>
               </div>
-            ) : (
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-[rgb(var(--accent-rgb)/0.1)] border border-[rgb(var(--accent-rgb)/0.2)] flex items-center justify-center">
-                    <Dumbbell size={18} className="text-[rgb(var(--accent-rgb))]" />
+            </div>
+          ) : (
+            <div className="rounded-2xl overflow-hidden cursor-pointer active:scale-[0.98] transition" onClick={() => { triggerHaptic("medium"); router.push("/schedule"); }} style={{ background: "linear-gradient(145deg, rgb(var(--accent-rgb) / 0.1), rgb(var(--accent-rgb) / 0.03) 40%, var(--fg-02))", boxShadow: "0 4px 30px -5px rgb(var(--accent-rgb) / 0.2), 0 0 0 1px rgb(var(--accent-rgb) / 0.15), inset 0 1px 0 rgb(var(--accent-rgb) / 0.1)" }}>
+              <div className="h-[2px] w-full bg-gradient-to-r from-transparent via-[rgb(var(--accent-rgb))] to-transparent opacity-60" />
+              <div className="p-4">
+                <p className="text-[9px] font-mono tracking-widest text-[rgb(var(--accent-rgb)/0.5)] mb-2.5">TODAY&apos;S WORKOUT</p>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-xl bg-[rgb(var(--accent-rgb)/0.12)] border border-[rgb(var(--accent-rgb)/0.25)] flex items-center justify-center">
+                      <Dumbbell size={22} className="text-[rgb(var(--accent-rgb))]" />
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold text-[var(--fg-90)]">{todayPlan.title}</p>
+                      <p className="text-[11px] font-mono text-[var(--fg-35)] mt-0.5">
+                        {todayPlan.count} exercise{todayPlan.count !== 1 ? "s" : ""} · {todayPlan.sets} sets · ~{estMinutes} min
+                      </p>
+                      {muscleGroups.length > 0 && (
+                        <p className="text-[9px] font-mono text-[rgb(var(--accent-rgb)/0.5)] mt-1">{muscleGroups.join(" · ")}</p>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-base font-semibold text-[var(--fg-80)]">{todayPlan.title}</p>
-                    <p className="text-[11px] font-mono text-[var(--fg-30)] mt-0.5">
-                      {todayPlan.count} exercise{todayPlan.count !== 1 ? "s" : ""} · {todayPlan.sets} sets · ~{estMinutes} min
+                  <button className="shrink-0 w-14 h-14 rounded-full bg-[rgb(var(--accent-rgb))] flex items-center justify-center text-black hover:brightness-110 transition" style={{ boxShadow: "0 0 25px rgb(var(--accent-rgb) / 0.4), 0 4px 12px rgb(var(--accent-rgb) / 0.3)" }}>
+                    <Play size={24} fill="black" className="ml-0.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </motion.div>
+
+        {/* Level, Stats, Attributes removed — level merged into hero, stats into weekly overview, attributes on character page */}
+
+        {/* ─── Body Status: Recovery + Weight + Hydration in one card ─── */}
+        {(isEnabled("recovery") || isEnabled("progress") || (hydrationMl !== null && isEnabled("wellness"))) && (
+          <motion.div variants={staggerItem} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-40px" }} transition={{ duration: 0.4, delay: 0.05 }} className="rounded-2xl border border-[var(--fg-08)] bg-[var(--fg-02)] overflow-hidden" style={{ order: cardOrder.recoveryBodyOrder }}>
+            <div className={`grid gap-px bg-[var(--fg-05)]`} style={{ gridTemplateColumns: `repeat(${[isEnabled("recovery"), isEnabled("progress"), hydrationMl !== null && isEnabled("wellness")].filter(Boolean).length}, 1fr)` }}>
+              {isEnabled("recovery") && (
+                <div className="bg-[var(--fg-02)] p-3 cursor-pointer active:scale-[0.97] transition" onClick={() => { triggerHaptic("light"); router.push("/recovery"); }}>
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <HeartPulse size={10} style={{ color: `rgb(${MODULE_REGISTRY.recovery.colorRgb})` }} />
+                    <p className="text-[7px] font-mono tracking-wider text-[var(--fg-25)]">RECOVERY</p>
+                  </div>
+                  <p className="text-xl font-bold font-mono text-[var(--fg-90)]">{stats.recoveryPct ?? "—"}<span className="text-[9px] text-[var(--fg-25)]">%</span></p>
+                  <p className="text-[8px] font-mono text-[var(--fg-18)] mt-0.5">
+                    {stats.recoveryPct !== null ? (stats.recoveryPct >= 80 ? "Ready" : stats.recoveryPct >= 50 ? "Partial" : "Rest") : "—"}
+                  </p>
+                </div>
+              )}
+              {isEnabled("progress") && (
+                <div className="bg-[var(--fg-02)] p-3 cursor-pointer active:scale-[0.97] transition" onClick={() => { triggerHaptic("light"); router.push("/track"); }}>
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <TrendingUp size={10} style={{ color: `rgb(${MODULE_REGISTRY.progress.colorRgb})` }} />
+                    <p className="text-[7px] font-mono tracking-wider text-[var(--fg-25)]">WEIGHT</p>
+                  </div>
+                  <p className="text-xl font-bold font-mono text-[var(--fg-90)]">
+                    {stats.bodyWeight !== null ? formatWeight(stats.bodyWeight, weightUnit, 1) : "—"}<span className="text-[9px] text-[var(--fg-25)]"> {weightUnit}</span>
+                  </p>
+                  {stats.bodyWeightChange !== null ? (
+                    <p className={`text-[8px] font-mono mt-0.5 ${stats.bodyWeightChange > 0 ? "text-orange-300/70" : stats.bodyWeightChange < 0 ? "text-emerald-300/70" : "text-[var(--fg-18)]"}`}>
+                      {stats.bodyWeightChange === 0 ? "No change" : `${stats.bodyWeightChange > 0 ? "↑" : "↓"} ${formatWeight(Math.abs(stats.bodyWeightChange), weightUnit, 1)}`}
                     </p>
+                  ) : (
+                    <p className="text-[8px] font-mono text-[var(--fg-18)] mt-0.5">—</p>
+                  )}
+                </div>
+              )}
+              {hydrationMl !== null && isEnabled("wellness") && (
+                <div className="bg-[var(--fg-02)] p-3 cursor-pointer active:scale-[0.97] transition" onClick={() => { triggerHaptic("light"); router.push("/wellness"); }}>
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <Droplets size={10} className="text-blue-400/70" />
+                    <p className="text-[7px] font-mono tracking-wider text-[var(--fg-25)]">WATER</p>
+                  </div>
+                  <p className="text-xl font-bold font-mono text-[var(--fg-90)]">{(hydrationMl / 1000).toFixed(1)}<span className="text-[9px] text-[var(--fg-25)]">L</span></p>
+                  <div className="h-1 rounded-full bg-[var(--fg-06)] overflow-hidden mt-1.5">
+                    <motion.div className="h-full rounded-full bg-blue-400/50" initial={{ width: 0 }} animate={{ width: `${Math.min(100, (hydrationMl / waterGoalMl) * 100)}%` }} transition={{ duration: 0.6, ease: "easeOut" }} />
                   </div>
                 </div>
-                <button
-                  onClick={() => router.push("/schedule")}
-                  className="shrink-0 w-10 h-10 rounded-xl bg-[rgb(var(--accent-rgb))] flex items-center justify-center text-black hover:brightness-110 transition"
-                >
-                  <Play size={18} fill="black" />
-                </button>
-              </div>
-            )}
-          </div>
-        </motion.div>
-
-        {/* ─── Level & Rank ─── */}
-        <motion.div variants={staggerItem} className="rounded-2xl border border-[rgb(var(--accent-rgb)/0.15)] bg-[var(--fg-03)] p-4" style={{ order: cardOrder.levelOrder, boxShadow: "0 0 20px -5px rgb(var(--accent-rgb) / 0.1), inset 0 1px 0 rgb(var(--accent-rgb) / 0.05)" }}>
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-[rgb(var(--accent-rgb)/0.1)] border border-[rgb(var(--accent-rgb)/0.2)] flex items-center justify-center">
-                <span className="text-lg font-bold text-[rgb(var(--accent-rgb))]">{statsLoaded ? level : "—"}</span>
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-[var(--fg-80)]">Level {statsLoaded ? level : "—"}</p>
-                <p className="text-[10px] font-mono text-[var(--fg-30)] mt-0.5">
-                  <span className={rank.color}>{rank.name}</span>
-                  {nextRank && <span className="text-[var(--fg-15)]"> · Next: {nextRank.name} at Lv.{nextRank.minLevel}</span>}
-                </p>
-              </div>
-            </div>
-            <span className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[9px] font-mono tracking-wider ${rank.color}`}
-              style={{ borderColor: `${rank.glow?.replace("0.6", "0.3") ?? "var(--fg-10)"}`, backgroundColor: `${rank.glow?.replace("0.6", "0.06") ?? "var(--fg-03)"}` }}
-            >
-              <Award size={10} />
-              {rank.name}
-            </span>
-          </div>
-
-          {/* XP Bar */}
-          <div className="flex items-center gap-2">
-            <Zap size={12} className="text-[rgb(var(--accent-rgb))] shrink-0" />
-            <div className="flex-1 h-2 bg-[var(--fg-06)] rounded-full overflow-hidden">
-              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${xpProgress}%`, background: `linear-gradient(90deg, rgb(var(--accent-rgb) / 0.7), rgb(var(--accent-rgb)))` }} />
-            </div>
-            <span className="text-[9px] font-mono text-[var(--fg-25)] shrink-0 min-w-[48px] text-right">
-              {levelInfo.isMaxLevel ? "MAX" : `${levelInfo.xpIntoCurrentLevel}/${levelInfo.xpNeededForNext}`}
-            </span>
-          </div>
-
-          {stats.goal && (
-            <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-[var(--fg-04)]">
-              <Target size={12} className="text-[var(--fg-20)]" />
-              <span className="text-[10px] font-mono text-[var(--fg-30)]">Goal: <span className="text-[var(--fg-50)]">{stats.goal}</span></span>
-            </div>
-          )}
-        </motion.div>
-
-        {/* ─── Quick Stats Grid ─── */}
-        <motion.div variants={staggerItem} className="grid grid-cols-2 gap-2.5" style={{ order: cardOrder.statsOrder }}>
-          {[
-            { icon: <Flame size={16} />, label: "STREAK", value: statsLoaded ? `${stats.streak}` : "—", sub: "days", color: "text-orange-400", bg: "bg-orange-400/10", border: "border-orange-400/20" },
-            { icon: <Activity size={16} />, label: "WORKOUTS", value: statsLoaded ? `${stats.totalWorkouts}` : "—", sub: "completed", color: "text-blue-400", bg: "bg-blue-400/10", border: "border-blue-400/20" },
-            { icon: <TrendingUp size={16} />, label: "WEEKLY VOL", value: statsLoaded ? `${Math.round(kgToUnit(stats.weeklyVolume, weightUnit)).toLocaleString()}` : "—", sub: weightUnit, color: "text-[rgb(var(--accent-rgb))]", bg: "bg-[rgb(var(--accent-rgb)/0.1)]", border: "border-[rgb(var(--accent-rgb)/0.2)]" },
-            { icon: <Trophy size={16} />, label: "PRs", value: statsLoaded ? `${stats.prCount}` : "—", sub: "exercises", color: "text-yellow-400", bg: "bg-yellow-400/10", border: "border-yellow-400/20" },
-          ].map((stat) => (
-            <div key={stat.label} className="rounded-xl border border-[rgb(var(--accent-rgb)/0.12)] bg-[var(--fg-03)] p-3" style={{ boxShadow: "0 0 15px -5px rgb(var(--accent-rgb) / 0.08)" }}>
-              <div className="flex items-center justify-between mb-2">
-                <span className={`w-7 h-7 rounded-lg ${stat.bg} ${stat.border} border flex items-center justify-center ${stat.color}`}>{stat.icon}</span>
-                <p className="text-[8px] font-mono tracking-wider text-[var(--fg-20)]">{stat.label}</p>
-              </div>
-              <p className="text-2xl font-bold text-[var(--fg-90)] font-mono">{stat.value}</p>
-              <p className="text-[9px] font-mono text-[var(--fg-20)] mt-0.5">{stat.sub}</p>
-            </div>
-          ))}
-        </motion.div>
-
-        {/* ─── Attribute Rings ─── */}
-        <motion.div variants={staggerItem} className="rounded-2xl border border-[rgb(var(--accent-rgb)/0.15)] bg-[var(--fg-03)] p-4" style={{ order: cardOrder.attrOrder, boxShadow: "0 0 20px -5px rgb(var(--accent-rgb) / 0.1), inset 0 1px 0 rgb(var(--accent-rgb) / 0.05)" }}>
-          <p className="text-[9px] font-mono tracking-widest text-[rgb(var(--accent-light-rgb)/0.4)] mb-3">ATTRIBUTES</p>
-          <div className="grid grid-cols-4 gap-3">
-            {[
-              { label: "STR", value: stats.strength, color: "rgb(var(--accent-rgb))" },
-              { label: "END", value: stats.endurance, color: "rgb(52,211,153)" },
-              { label: "CON", value: stats.consistency, color: "rgb(251,146,60)" },
-              { label: "DIS", value: stats.discipline, color: "rgb(168,85,247)" },
-            ].map((attr) => (
-              <div key={attr.label} className="flex flex-col items-center">
-                <div className="relative w-14 h-14 mb-1.5">
-                  <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
-                    <circle cx="18" cy="18" r="15" fill="none" stroke="var(--fg-04)" strokeWidth="2.5" />
-                    <circle cx="18" cy="18" r="15" fill="none" stroke={attr.color} strokeWidth="2.5" strokeDasharray={`${attr.value * 0.94} 94`} strokeLinecap="round" opacity="0.7" />
-                  </svg>
-                  <span className="absolute inset-0 flex items-center justify-center text-[11px] font-mono font-bold text-[var(--fg-70)]">{attr.value}</span>
-                </div>
-                <p className="text-[8px] font-mono text-[var(--fg-25)]">{attr.label}</p>
-              </div>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* ─── Recovery & Body ─── */}
-        <motion.div variants={staggerItem} className="grid grid-cols-2 gap-2.5" style={{ order: cardOrder.recoveryBodyOrder }}>
-          {isEnabled("recovery") && (
-            <div className="rounded-xl border bg-[var(--fg-03)] p-3" style={{ borderColor: `rgb(${MODULE_REGISTRY.recovery.colorRgb} / 0.15)`, boxShadow: `0 0 15px -5px rgb(${MODULE_REGISTRY.recovery.colorRgb} / 0.1)` }}>
-              <div className="flex items-center gap-1.5 mb-2">
-                <HeartPulse size={12} style={{ color: `rgb(${MODULE_REGISTRY.recovery.colorRgb})` }} />
-                <p className="text-[8px] font-mono tracking-wider text-[var(--fg-25)]">RECOVERY</p>
-              </div>
-              <p className="text-2xl font-bold font-mono text-[var(--fg-90)]">{stats.recoveryPct ?? "—"}<span className="text-xs text-[var(--fg-25)]">%</span></p>
-              <p className="text-[9px] font-mono text-[var(--fg-20)] mt-0.5">
-                {stats.recoveryPct !== null
-                  ? stats.recoveryPct >= 80 ? "Ready to train" : stats.recoveryPct >= 50 ? "Partially recovered" : "Rest suggested"
-                  : "No data"}
-              </p>
-            </div>
-          )}
-          {isEnabled("progress") && (
-            <div className="rounded-xl border bg-[var(--fg-03)] p-3" style={{ borderColor: `rgb(${MODULE_REGISTRY.progress.colorRgb} / 0.15)`, boxShadow: `0 0 15px -5px rgb(${MODULE_REGISTRY.progress.colorRgb} / 0.1)` }}>
-              <div className="flex items-center gap-1.5 mb-2">
-                <TrendingUp size={12} style={{ color: `rgb(${MODULE_REGISTRY.progress.colorRgb})` }} />
-                <p className="text-[8px] font-mono tracking-wider text-[var(--fg-25)]">BODY WEIGHT</p>
-              </div>
-              <p className="text-2xl font-bold font-mono text-[var(--fg-90)]">
-                {stats.bodyWeight !== null ? formatWeight(stats.bodyWeight, weightUnit, 1) : "—"}<span className="text-xs text-[var(--fg-25)]"> {weightUnit}</span>
-              </p>
-              {stats.bodyWeightChange !== null ? (
-                <p className={`text-[9px] font-mono mt-0.5 ${stats.bodyWeightChange > 0 ? "text-orange-300/60" : stats.bodyWeightChange < 0 ? "text-emerald-300/60" : "text-[var(--fg-20)]"}`}>
-                  {stats.bodyWeightChange === 0 ? "No change" : `${stats.bodyWeightChange > 0 ? "+" : "−"}${formatWeight(Math.abs(stats.bodyWeightChange), weightUnit, 1)} ${weightUnit} from previous`}
-                </p>
-              ) : (
-                <p className="text-[9px] font-mono text-[var(--fg-20)] mt-0.5">No trend data</p>
               )}
             </div>
-          )}
-        </motion.div>
+          </motion.div>
+        )}
+
+        {/* ─── Habits Card with Segment Ring ─── */}
+        {habitStats && isEnabled("habits") && (() => {
+          const HABIT_RING_COLORS = [
+            { from: "#ef4444", to: "#f87171" }, { from: "#10b981", to: "#34d399" },
+            { from: "#3b82f6", to: "#60a5fa" }, { from: "#f59e0b", to: "#fbbf24" },
+            { from: "#a855f7", to: "#c084fc" }, { from: "#ec4899", to: "#f472b6" },
+            { from: "#06b6d4", to: "#22d3ee" }, { from: "#f97316", to: "#fb923c" },
+          ];
+          const pct = habitStats.total > 0 ? Math.round((habitStats.completed / habitStats.total) * 100) : 0;
+          const svgSize = 100;
+          const ctr = svgSize / 2;
+          const sw = 8;
+          const r = (svgSize / 2) - (sw / 2) - 1;
+          const n = habitStats.habits.length;
+          const gapDeg = n <= 3 ? 8 : n <= 6 ? 6 : 4;
+          const segDeg = (360 - gapDeg * n) / n;
+          function hubArc(sDeg: number, eDeg: number) {
+            const s2 = (sDeg - 90) * Math.PI / 180;
+            const e2 = (eDeg - 90) * Math.PI / 180;
+            return `M ${ctr + r * Math.cos(s2)} ${ctr + r * Math.sin(s2)} A ${r} ${r} 0 ${(eDeg - sDeg) > 180 ? 1 : 0} 1 ${ctr + r * Math.cos(e2)} ${ctr + r * Math.sin(e2)}`;
+          }
+          return (
+            <motion.div variants={staggerItem} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-40px" }} transition={{ duration: 0.4, delay: 0.1 }} className="rounded-2xl border border-rose-400/15 overflow-hidden cursor-pointer active:scale-[0.98] transition" style={{ order: cardOrder.habitsOrder, background: "linear-gradient(135deg, rgb(244 63 94 / 0.06), rgb(168 85 247 / 0.03))", boxShadow: "0 0 20px -5px rgb(244 63 94 / 0.1)" }} onClick={() => { triggerHaptic("light"); router.push("/habits"); }}>
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Flame size={14} className="text-rose-400/60" />
+                    <p className="text-[9px] font-mono tracking-widest text-rose-300/40">DAILY HABITS</p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-mono text-[var(--fg-30)]">{habitStats.completed === habitStats.total && habitStats.total > 0 ? "Perfect Day!" : `${pct}%`}</span>
+                    <ChevronRight size={12} className="text-[var(--fg-15)]" />
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="relative shrink-0" style={{ width: svgSize, height: svgSize }}>
+                    <svg width={svgSize} height={svgSize} viewBox={`0 0 ${svgSize} ${svgSize}`}>
+                      <defs>
+                        {habitStats.habits.map((_, i) => {
+                          const c = HABIT_RING_COLORS[i % HABIT_RING_COLORS.length];
+                          return (<linearGradient key={`hsg-${i}`} id={`hsg-${i}`} x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor={c.from} /><stop offset="100%" stopColor={c.to} /></linearGradient>);
+                        })}
+                        <filter id="hub-glow"><feGaussianBlur stdDeviation="3" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+                      </defs>
+                      {habitStats.habits.map((h, i) => {
+                        const startDeg = i * (segDeg + gapDeg);
+                        const d = hubArc(startDeg, startDeg + segDeg);
+                        const c = HABIT_RING_COLORS[i % HABIT_RING_COLORS.length];
+                        return (
+                          <g key={h.id}>
+                            <path d={d} fill="none" stroke={`${c.from}20`} strokeWidth={sw} strokeLinecap="round" />
+                            {h.done && (
+                              <>
+                                <motion.path d={d} fill="none" stroke={`${c.from}40`} strokeWidth={sw + 4} strokeLinecap="round" filter="url(#hub-glow)" pathLength={1} initial={{ pathLength: 0, opacity: 0 }} animate={{ pathLength: 1, opacity: 0.6 }} transition={{ duration: 0.6, delay: 0.15 + i * 0.08, ease: [0.34, 1.56, 0.64, 1] }} />
+                                <motion.path d={d} fill="none" stroke={`url(#hsg-${i})`} strokeWidth={sw} strokeLinecap="round" pathLength={1} initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.5, delay: 0.1 + i * 0.08, ease: [0.34, 1.56, 0.64, 1] }} />
+                              </>
+                            )}
+                          </g>
+                        );
+                      })}
+                    </svg>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <motion.div initial={{ opacity: 0, scale: 0.5 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.4, delay: 0.3, ease: [0.34, 1.56, 0.64, 1] }}>
+                        <AnimatedPercent value={pct} className="text-lg font-bold font-mono text-[var(--fg-70)]" />
+                      </motion.div>
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0 space-y-1">
+                    {habitStats.habits.slice(0, 4).map((h, i) => {
+                      const c = HABIT_RING_COLORS[i % HABIT_RING_COLORS.length];
+                      return (
+                        <div key={h.id} className="flex items-center gap-2">
+                          <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: h.done ? c.from : `${c.from}33`, boxShadow: h.done ? `0 0 4px ${c.from}` : "none" }} />
+                          <span className={`text-[10px] font-mono truncate ${h.done ? "text-[var(--fg-50)] line-through" : "text-[var(--fg-35)]"}`}>{h.icon} {h.name}</span>
+                          {h.done && <span className="text-[8px] text-emerald-400/50 ml-auto shrink-0">✓</span>}
+                        </div>
+                      );
+                    })}
+                    {habitStats.habits.length > 4 && <p className="text-[9px] font-mono text-[var(--fg-15)]">+{habitStats.habits.length - 4} more</p>}
+                  </div>
+                </div>
+              </div>
+              {pendingHabits.length > 0 && (
+                <div className="border-t border-[var(--fg-04)] px-4 py-2 flex gap-1.5 flex-wrap" onClick={(e) => e.stopPropagation()}>
+                  {pendingHabits.map((h) => (
+                    <motion.button key={h.id} onClick={() => quickCompleteHabit(h.id)} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[var(--fg-06)] bg-[var(--fg-02)] hover:bg-[var(--fg-06)] text-[10px] font-mono text-[var(--fg-40)] hover:text-[var(--fg-60)] transition active:scale-95"
+                      animate={habitCompleted === h.id ? { backgroundColor: ["rgb(16 185 129 / 0.2)", "rgb(16 185 129 / 0)"], borderColor: ["rgb(16 185 129 / 0.5)", "rgb(var(--fg-rgb) / 0.06)"] } : {}}
+                      transition={{ duration: 0.8 }}
+                    >
+                      {habitCompleted === h.id ? <span className="text-emerald-400">✓</span> : <span>{h.icon}</span>} {h.name}
+                    </motion.button>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          );
+        })()}
 
         {/* ─── Energy Dashboard ─── */}
         {isEnabled("nutrition") && calorieSummary && (() => {
@@ -1389,7 +1609,7 @@ export default function Dashboard() {
           const pct = Math.min((eaten / target) * 100, 100);
           const over = eaten > target;
           return (
-            <motion.div variants={staggerItem} className="rounded-2xl border bg-[var(--fg-03)] p-4" style={{ order: cardOrder.energyOrder, borderColor: `rgb(${MODULE_REGISTRY.nutrition.colorRgb} / 0.15)`, boxShadow: `0 0 20px -5px rgb(${MODULE_REGISTRY.nutrition.colorRgb} / 0.1), inset 0 1px 0 rgb(${MODULE_REGISTRY.nutrition.colorRgb} / 0.05)` }}>
+            <motion.div variants={staggerItem} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-40px" }} transition={{ duration: 0.4, delay: 0.15 }} className="rounded-2xl border p-4" style={{ order: cardOrder.energyOrder, borderColor: `rgb(${MODULE_REGISTRY.nutrition.colorRgb} / 0.2)`, background: `linear-gradient(135deg, rgb(${MODULE_REGISTRY.nutrition.colorRgb} / 0.05), var(--fg-03))`, boxShadow: `0 0 25px -5px rgb(${MODULE_REGISTRY.nutrition.colorRgb} / 0.12), inset 0 1px 0 rgb(${MODULE_REGISTRY.nutrition.colorRgb} / 0.06)` }}>
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <Flame size={14} style={{ color: `rgb(${MODULE_REGISTRY.nutrition.colorRgb})` }} />
@@ -1399,8 +1619,6 @@ export default function Dashboard() {
                   <Plus size={10} /> Log Food
                 </button>
               </div>
-
-              {/* Target + remaining */}
               <div className="flex items-baseline justify-between mb-2">
                 <div className="flex items-baseline gap-1">
                   <span className="text-3xl font-bold font-mono text-[rgb(var(--accent-light-rgb))]">{remaining > 0 ? remaining : 0}</span>
@@ -1408,51 +1626,36 @@ export default function Dashboard() {
                 </div>
                 <span className="text-[9px] font-mono text-[var(--fg-20)]">{eaten} / {target}</span>
               </div>
-
-              {/* Progress bar */}
               <div className="h-2 rounded-full bg-[var(--fg-06)] mb-3 overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-500 ${over ? "bg-red-400" : "bg-[rgb(var(--accent-rgb))]"}`}
-                  style={{ width: `${pct}%` }}
-                />
+                <motion.div className={`h-full rounded-full ${over ? "bg-red-400" : "bg-[rgb(var(--accent-rgb))]"}`} initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.8, ease: "easeOut" }} />
               </div>
-
-              {/* Macros: eaten / target */}
               <div className="grid grid-cols-3 gap-2">
-                <div className="rounded-lg bg-[var(--fg-03)] border border-[var(--fg-06)] p-2 text-center">
-                  <p className="text-[8px] font-mono text-[var(--fg-25)]">PROTEIN</p>
-                  <p className="text-sm font-bold font-mono text-rose-300">{Math.round(todayIntake?.protein_g ?? 0)}<span className="text-[var(--fg-20)]">/{calorieSummary.macros.protein}g</span></p>
-                </div>
-                <div className="rounded-lg bg-[var(--fg-03)] border border-[var(--fg-06)] p-2 text-center">
-                  <p className="text-[8px] font-mono text-[var(--fg-25)]">CARBS</p>
-                  <p className="text-sm font-bold font-mono text-amber-300">{Math.round(todayIntake?.carbs_g ?? 0)}<span className="text-[var(--fg-20)]">/{calorieSummary.macros.carbs}g</span></p>
-                </div>
-                <div className="rounded-lg bg-[var(--fg-03)] border border-[var(--fg-06)] p-2 text-center">
-                  <p className="text-[8px] font-mono text-[var(--fg-25)]">FAT</p>
-                  <p className="text-sm font-bold font-mono text-blue-300">{Math.round(todayIntake?.fat_g ?? 0)}<span className="text-[var(--fg-20)]">/{calorieSummary.macros.fat}g</span></p>
-                </div>
+                {[
+                  { l: "PROTEIN", v: Math.round(todayIntake?.protein_g ?? 0), t: calorieSummary.macros.protein, c: "text-rose-300" },
+                  { l: "CARBS", v: Math.round(todayIntake?.carbs_g ?? 0), t: calorieSummary.macros.carbs, c: "text-amber-300" },
+                  { l: "FAT", v: Math.round(todayIntake?.fat_g ?? 0), t: calorieSummary.macros.fat, c: "text-blue-300" },
+                ].map((m) => (
+                  <div key={m.l} className="rounded-lg bg-[var(--fg-03)] border border-[var(--fg-06)] p-2 text-center">
+                    <p className="text-[8px] font-mono text-[var(--fg-25)]">{m.l}</p>
+                    <p className={`text-sm font-bold font-mono ${m.c}`}>{m.v}<span className="text-[var(--fg-20)]">/{m.t}g</span></p>
+                  </div>
+                ))}
               </div>
-
               {showQuickLog && (
                 <div className="mt-3 pt-3 border-t border-[var(--fg-06)] space-y-2">
                   <input type="text" value={qlLabel} onChange={(e) => setQlLabel(e.target.value)} placeholder="What did you eat?" className="w-full h-9 rounded-lg bg-[var(--fg-04)] border border-[var(--fg-08)] px-3 text-sm font-mono focus:outline-none focus:border-[rgb(var(--accent-rgb)/0.4)] transition placeholder:text-[var(--fg-15)]" />
                   <div className="grid grid-cols-4 gap-2">
-                    <div>
-                      <label className="text-[8px] font-mono text-[var(--fg-30)] block mb-1">KCAL *</label>
-                      <input type="number" min="0" inputMode="numeric" onWheel={(e) => (e.target as HTMLElement).blur()} value={qlKcal} onChange={(e) => setQlKcal(e.target.value)} placeholder="—" className="w-full h-9 rounded-lg bg-[var(--fg-04)] border border-[var(--fg-08)] text-center text-sm font-bold font-mono focus:outline-none focus:border-[rgb(var(--accent-rgb)/0.4)] transition placeholder:text-[var(--fg-15)]" />
-                    </div>
-                    <div>
-                      <label className="text-[8px] font-mono text-rose-300/50 block mb-1">PROT</label>
-                      <input type="number" min="0" inputMode="decimal" onWheel={(e) => (e.target as HTMLElement).blur()} value={qlProtein} onChange={(e) => setQlProtein(e.target.value)} placeholder="—" className="w-full h-9 rounded-lg bg-[var(--fg-04)] border border-[var(--fg-08)] text-center text-sm font-mono focus:outline-none focus:border-[rgb(var(--accent-rgb)/0.4)] transition placeholder:text-[var(--fg-15)]" />
-                    </div>
-                    <div>
-                      <label className="text-[8px] font-mono text-amber-300/50 block mb-1">CARB</label>
-                      <input type="number" min="0" inputMode="decimal" onWheel={(e) => (e.target as HTMLElement).blur()} value={qlCarbs} onChange={(e) => setQlCarbs(e.target.value)} placeholder="—" className="w-full h-9 rounded-lg bg-[var(--fg-04)] border border-[var(--fg-08)] text-center text-sm font-mono focus:outline-none focus:border-[rgb(var(--accent-rgb)/0.4)] transition placeholder:text-[var(--fg-15)]" />
-                    </div>
-                    <div>
-                      <label className="text-[8px] font-mono text-blue-300/50 block mb-1">FAT</label>
-                      <input type="number" min="0" inputMode="decimal" onWheel={(e) => (e.target as HTMLElement).blur()} value={qlFat} onChange={(e) => setQlFat(e.target.value)} placeholder="—" className="w-full h-9 rounded-lg bg-[var(--fg-04)] border border-[var(--fg-08)] text-center text-sm font-mono focus:outline-none focus:border-[rgb(var(--accent-rgb)/0.4)] transition placeholder:text-[var(--fg-15)]" />
-                    </div>
+                    {[
+                      { l: "KCAL *", v: qlKcal, s: setQlKcal, c: "" },
+                      { l: "PROT", v: qlProtein, s: setQlProtein, c: "text-rose-300/50" },
+                      { l: "CARB", v: qlCarbs, s: setQlCarbs, c: "text-amber-300/50" },
+                      { l: "FAT", v: qlFat, s: setQlFat, c: "text-blue-300/50" },
+                    ].map((f) => (
+                      <div key={f.l}>
+                        <label className={`text-[8px] font-mono block mb-1 ${f.c || "text-[var(--fg-30)]"}`}>{f.l}</label>
+                        <input type="number" min="0" inputMode="numeric" onWheel={(e) => (e.target as HTMLElement).blur()} value={f.v} onChange={(e) => f.s(e.target.value)} placeholder="—" className="w-full h-9 rounded-lg bg-[var(--fg-04)] border border-[var(--fg-08)] text-center text-sm font-mono focus:outline-none focus:border-[rgb(var(--accent-rgb)/0.4)] transition placeholder:text-[var(--fg-15)]" />
+                      </div>
+                    ))}
                   </div>
                   <button onClick={handleQuickLog} disabled={!qlKcal || qlSaving} className="w-full py-2 rounded-lg bg-[rgb(var(--accent-rgb))] text-black text-xs font-semibold hover:brightness-110 disabled:opacity-40 transition">
                     {qlSaving ? "Saving..." : "Log Entry"}
@@ -1463,47 +1666,42 @@ export default function Dashboard() {
           );
         })()}
 
-        {/* ─── Quick Links ─── */}
-        <motion.div variants={staggerItem} className="grid grid-cols-3 gap-2.5" style={{ order: 80 }}>
-          {[
-            { label: "Schedule", icon: <Calendar size={16} />, href: "/schedule", module: "gym" as const },
-            { label: "Progress", icon: <TrendingUp size={16} />, href: "/track", module: "progress" as const },
-            { label: "Recovery", icon: <HeartPulse size={16} />, href: "/recovery", module: "recovery" as const },
-          ].filter((l) => isEnabled(l.module)).map((link) => (
-            <button
-              key={link.label}
-              onClick={() => router.push(link.href)}
-              className="rounded-xl border border-[rgb(var(--accent-rgb)/0.12)] bg-[var(--fg-03)] p-3 flex flex-col items-center gap-1.5 text-[var(--fg-30)] hover:text-[rgb(var(--accent-light-rgb))] hover:bg-[rgb(var(--accent-rgb)/0.05)] hover:border-[rgb(var(--accent-rgb)/0.25)] transition"
-            >
-              {link.icon}
-              <span className="text-[9px] font-mono tracking-wider">{link.label.toUpperCase()}</span>
-            </button>
-          ))}
-        </motion.div>
+        {/* ─── Nudges ─── */}
+        {nudges.length > 0 && (
+          <motion.div variants={staggerItem} className="flex flex-col gap-2">
+            {nudges.map((n) => (
+              <div key={n.key} className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-[var(--fg-02)]">
+                <span className="text-[11px] shrink-0">{n.icon}</span>
+                <button onClick={() => router.push(n.href)} className="flex-1 text-left text-[11px] text-[var(--fg-40)] hover:text-[var(--fg-60)] transition">{n.text}</button>
+                <button onClick={() => dismissNudge(n.key)} className="shrink-0 w-5 h-5 rounded flex items-center justify-center text-[var(--fg-12)] hover:text-[var(--fg-35)] text-xs">✕</button>
+              </div>
+            ))}
+          </motion.div>
+        )}
 
         {/* ─── Recent Notifications ─── */}
         {notifLoaded && notifications.length > 0 && (
-          <motion.div variants={staggerItem} className="rounded-2xl border border-[rgb(var(--accent-rgb)/0.12)] bg-[var(--fg-03)] overflow-hidden" style={{ order: 90, boxShadow: "0 0 15px -5px rgb(var(--accent-rgb) / 0.08)" }}>
+          <motion.div variants={staggerItem} className="rounded-2xl border border-[rgb(var(--accent-rgb)/0.12)] bg-[var(--fg-03)] overflow-hidden mb-6" style={{ order: 99, boxShadow: "0 0 15px -5px rgb(var(--accent-rgb) / 0.08)" }}>
             <div className="flex items-center justify-between px-4 pt-3.5 pb-2">
-              <p className="text-[9px] font-mono tracking-widest text-[rgb(var(--accent-light-rgb)/0.4)]">RECENT NOTIFICATIONS</p>
-              <button onClick={() => router.push("/notifications")} className="text-[9px] font-mono text-[rgb(var(--accent-rgb)/0.5)] hover:text-[rgb(var(--accent-rgb))] transition">
-                View All
-              </button>
+              <p className="text-[9px] font-mono tracking-widest text-[rgb(var(--accent-light-rgb)/0.4)]">NOTIFICATIONS</p>
+              <button onClick={() => router.push("/notifications")} className="text-[9px] font-mono text-[rgb(var(--accent-rgb)/0.5)] hover:text-[rgb(var(--accent-rgb))] transition">View All</button>
             </div>
             <div className="px-3 pb-3 space-y-1">
-              {notifications.slice(0, 3).map((n) => (
-                <button
-                  key={n.id}
-                  onClick={() => dismissNotification(n.id)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-[var(--fg-02)] transition text-left"
-                >
-                  <Bell size={12} className="text-[var(--fg-20)] shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[11px] text-[var(--fg-60)] truncate">{n.message}</p>
-                    <p className="text-[9px] font-mono text-[var(--fg-15)] mt-0.5">{timeAgo(n.created_at)}</p>
-                  </div>
-                </button>
-              ))}
+              {notifications.slice(0, 3).map((n) => {
+                const notifColor = n.type === "new_pr" ? "text-yellow-400" : n.type === "streak" ? "text-orange-400" : n.type === "achievement" ? "text-purple-400" : "text-[var(--fg-25)]";
+                const NotifIcon = n.type === "new_pr" ? Trophy : n.type === "streak" ? Flame : n.type === "achievement" ? Award : Bell;
+                return (
+                  <motion.div key={n.id} drag="x" dragConstraints={{ left: -80, right: 0 }} dragElastic={0.1} onDragEnd={(_: any, info: any) => { if (info.offset.x < -50) { triggerHaptic("medium"); dismissNotification(n.id); } }} className="cursor-grab active:cursor-grabbing">
+                    <button onClick={() => dismissNotification(n.id)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-[var(--fg-02)] transition text-left active:scale-[0.98]">
+                      <NotifIcon size={12} className={`${notifColor} shrink-0`} />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] text-[var(--fg-60)] truncate">{n.message}</p>
+                        <p className="text-[9px] font-mono text-[var(--fg-15)] mt-0.5">{timeAgo(n.created_at)}</p>
+                      </div>
+                    </button>
+                  </motion.div>
+                );
+              })}
             </div>
           </motion.div>
         )}

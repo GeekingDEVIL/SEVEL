@@ -67,19 +67,6 @@ export default function MobileNav() {
           );
         })}
       </div>
-      <div
-        className="absolute -top-3.5 right-3 flex items-center gap-1 px-2.5 py-1 rounded-full text-[9px] font-mono font-semibold tracking-widest uppercase"
-        style={{
-          background: `linear-gradient(135deg, ${isFemale ? "rgba(236,72,153,0.2)" : "rgba(96,165,250,0.2)"}, ${isFemale ? "rgba(190,24,93,0.15)" : "rgba(59,130,246,0.15)"})`,
-          border: `1px solid ${modeColor}50`,
-          color: modeColor,
-          boxShadow: `0 0 12px ${isFemale ? "rgba(236,72,153,0.25)" : "rgba(96,165,250,0.25)"}`,
-          backdropFilter: "blur(8px)",
-        }}
-      >
-        <span className="text-sm leading-none">{modeSymbol}</span>
-        <span>{sex}</span>
-      </div>
     </nav>
   );
 }

@@ -1215,6 +1215,7 @@ export function useWorkoutSession() {
     async function finishWorkout() {
         if (!user || !sessionId || !startedAt || finishing) return;
         setFinishing(true);
+        try {
         const allSets = Object.values(logs).flat().filter((s) => s.completed);
         const workingSets = allSets.filter((s) => !s.is_warmup);
         const totalSets = workingSets.length;
@@ -1279,6 +1280,9 @@ export function useWorkoutSession() {
         setStatus("completed");
         try { const c = JSON.parse(localStorage.getItem("sevel_workout_cache") || "null"); if (c) { c.completed = true; localStorage.setItem("sevel_workout_cache", JSON.stringify(c)); } } catch {}
         setRestRemaining(null);
+        } finally {
+            setFinishing(false);
+        }
     }
 
     async function cancelSession() {

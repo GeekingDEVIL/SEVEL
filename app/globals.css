@@ -380,7 +380,7 @@ button:active:not(:disabled), [role="button"]:active:not(:disabled) {
   transform: translateX(-50%);
   width: 700px;
   height: 700px;
-  background: radial-gradient(circle, rgb(var(--accent-rgb) / 0.07) 0%, transparent 70%);
+  background: radial-gradient(circle, rgb(var(--ambient-rgb, var(--accent-rgb)) / 0.07) 0%, transparent 70%);
   border-radius: 50%;
   filter: blur(60px);
 }
@@ -511,6 +511,19 @@ button:active:not(:disabled), [role="button"]:active:not(:disabled) {
   0%, 100% { border-color: rgb(var(--accent-rgb) / 0.06); box-shadow: 0 0 40px rgb(var(--accent-rgb) / 0.03), 0 0 80px rgb(var(--accent-rgb) / 0); }
   50% { border-color: rgb(var(--accent-rgb) / 0.15); box-shadow: 0 0 40px rgb(var(--accent-rgb) / 0.08), 0 0 80px rgb(var(--accent-rgb) / 0.03); }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .pill-marquee-track { animation: none !important; }
+  [style*="hero-breathe"] { animation: none !important; }
+}
+
+.zone-divider {
+  height: 1px;
+  background: linear-gradient(to right, transparent, rgb(var(--fg-rgb) / 0.06), transparent);
+  margin: 4px 0;
+}
+
+/* Hub v4 — unused classes removed */
 
 @keyframes title-spacing {
   from { letter-spacing: -0.02em; opacity: 0; }
